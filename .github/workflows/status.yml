@@ -2,26 +2,24 @@ name: Build and Test
 
 on:
   push:
-    branches: [ main, develop ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
-        node-version: [20.x]
+        node-version: [24.x]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js ${{ matrix.node-version }}
+      - name: Set up Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
 
       - name: Install dependencies
         working-directory: ./open-chocolate
@@ -34,6 +32,10 @@ jobs:
       - name: Check formatting
         working-directory: ./open-chocolate
         run: npm run format:check
+
+      - name: Run tests
+        working-directory: ./open-chocolate
+        run: npm test
 
       - name: Build project
         working-directory: ./open-chocolate
