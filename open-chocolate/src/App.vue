@@ -11,48 +11,33 @@ const devices = ref<ChocolateDevice[]>([]);
 const connectedKey = ref<string | null>(null);
 const scanned = ref(false);
 const scanning = ref(false);
-const connecting = ref(false);
-const connectingKey = ref<string | null>(null);
 const busy = ref(false);
 const error = ref<string | null>(null);
 const selectedKey = ref<string | null>(null);
 
+// Derived from device status - no shadow copies to keep in sync.
+const connectingKey = computed(
+  () => devices.value.find((d) => d.status === 'connecting')?.pair.key ?? null
+);
+
 const monitorEntries = reactive<MonitorEntry[]>([]);
 const monitorLimit = 500;
 
-// Local editable copy of the connected device config.
+// The service owns all device state and hands out frozen snapshots on every
+// emit, so storing them directly is always safe.
 const config = ref(emptyConfig());
 const hasDevice = computed(() => connectedKey.value !== null);
 
-// Signature guards: only replace reactive state when the underlying data
-// actually changed. Replacing refs on every event (or on a poller) re-renders
-// the panels constantly, which glitches native select dropdowns mid-use.
-let lastDevicesSig = '';
-let lastConfigSig = '';
-
 function refreshState() {
-  const list = comms.getDevices();
+  devices.value = comms.getDevices();
   const connected = comms.getConnected();
-
-  const devicesSig = JSON.stringify([
-    connected?.pair.key ?? null,
-    list.map((d) => [d.pair.key, d.status]),
-  ]);
-  if (devicesSig !== lastDevicesSig) {
-    lastDevicesSig = devicesSig;
-    devices.value = list;
-    connectedKey.value = connected?.pair.key ?? null;
-  }
-
-  const cfg = connected?.config ?? null;
-  const cfgSig = JSON.stringify(cfg);
-  if (cfgSig !== lastConfigSig) {
-    lastConfigSig = cfgSig;
-    config.value = cfg ? JSON.parse(JSON.stringify(cfg)) : emptyConfig();
-  }
+  connectedKey.value = connected?.pair.key ?? null;
+  config.value = connected?.config ?? emptyConfig();
 }
 
 onMounted(() => {
+  // The service emits synchronously during every state change, so these
+  // listeners are the only refresh path we need.
   comms.onState(() => refreshState());
   comms.onMonitor((entry) => {
     monitorEntries.push(entry);
@@ -69,7 +54,6 @@ async function scan() {
   try {
     await comms.scan();
     scanned.value = true;
-    refreshState();
     // Pre-select a device whose name mentions "sinco" (case-insensitive).
     if (!selectedKey.value || !devices.value.some((d) => d.pair.key === selectedKey.value)) {
       const match = devices.value.find((d) => d.pair.name.toLowerCase().includes('sinco'));
@@ -84,27 +68,14 @@ async function scan() {
 }
 
 async function connect(key: string) {
-  if (connecting.value) return; // one connect at a time
-  const device = devices.value.find((d) => d.pair.key === key);
-  if (!device) return;
-  connecting.value = true;
-  connectingKey.value = key;
+  if (connectingKey.value) return; // one connect at a time
   error.value = null;
   try {
-    await comms.connect(device);
+    await comms.connect(key);
     selectedKey.value = key;
-    refreshState();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    connecting.value = false;
-    connectingKey.value = null;
   }
-}
-
-function disconnect() {
-  comms.disconnect();
-  refreshState();
 }
 
 async function withBusy(fn: () => Promise<void>) {
@@ -149,7 +120,6 @@ function importConfig(file: File) {
     try {
       const snapshot = JSON.parse(String(reader.result));
       comms.importState(snapshot);
-      refreshState();
       error.value = null;
     } catch (err) {
       error.value = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -176,9 +146,7 @@ function importConfig(file: File) {
       </div>
     </header>
 
-    <p v-if="comms.midi.error || error" class="error-banner">
-      {{ comms.midi.error ?? error }}
-    </p>
+    <p v-if="error" class="error-banner">{{ error }}</p>
 
     <main class="layout">
       <DevicePanel
@@ -189,7 +157,7 @@ function importConfig(file: File) {
         :connecting-key="connectingKey"
         @select="selectedKey = $event"
         @connect="connect($event)"
-        @disconnect="disconnect"
+        @disconnect="comms.disconnect()"
       />
 
       <ConfigPanel

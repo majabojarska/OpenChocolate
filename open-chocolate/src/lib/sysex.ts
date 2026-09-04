@@ -44,17 +44,9 @@ export const CK_FOOTSWITCH_B = 0x38b;
 export const CK_FOOTSWITCH_C = 0x18b;
 export const CK_SYSTEM = 0x20b;
 
-/** Acknowledgement sent by the device after every accepted write. */
-export const ACK_WRITE_OK = [
-  0xf0, 0x00, 0x32, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00, 0x7f, 0x01, 0xf7,
-] as const;
-
-/** Total configuration blob size (matches FC2Struct.DATA_SIZE of the official app). */
-export const CONFIG_BLOB_SIZE = 23646;
-
 /**
  * Configuration addresses (verified against the official app's struct layout
- * and the captured writes).
+ * and the captured writes). The full configuration blob is 23646 bytes.
  */
 export const ADDR = {
   mode: 0x0000, // operating mode (0..12)
@@ -82,37 +74,8 @@ export function footswitchAddr(page: number, index: number): number {
   return 93 + page * 1668 + index * 417;
 }
 
-/** Operating mode identifiers (address 0). */
-export const MODES = [
-  { value: 0x00, label: 'Program Change A' },
-  { value: 0x01, label: 'Program Change B' },
-  { value: 0x02, label: 'Custom' },
-  { value: 0x03, label: 'Advanced Custom' },
-  { value: 0x04, label: 'Manufacturer Control' },
-  { value: 0x05, label: 'Touch Screen (Android)' },
-  { value: 0x06, label: 'Video Model' },
-  { value: 0x07, label: 'Keyboard A' },
-  { value: 0x08, label: 'Keyboard B' },
-  { value: 0x09, label: 'Multimedia Keyboard' },
-  { value: 0x0a, label: 'Custom Keyboard' },
-  { value: 0x0b, label: 'Mix Key' },
-  { value: 0x0c, label: 'Speaker' },
-] as const;
-
-/** Per-footswitch step behaviours (the five Advanced Custom sub-modes). */
-export const FOOTSWITCH_STEPS = [
-  { value: 0x00, label: 'Single tap (single group of information)' },
-  { value: 0x01, label: 'Single tap (two groups switching)' },
-  { value: 0x02, label: 'Press-release (two groups switching)' },
-  { value: 0x03, label: 'Long press' },
-  { value: 0x04, label: 'Short tap - long press' },
-] as const;
-
 /** Number of custom-mode CC/latch banks. */
 export const CUSTOM_CC_BANKS = 5;
-
-/** Footswitch names in protocol order. */
-export const FOOTSWITCH_NAMES = ['A', 'B', 'C', 'D'] as const;
 
 /** 14-bit id -> two 7-bit bytes (low first). */
 export function encode14(value: number): [number, number] {
@@ -206,19 +169,6 @@ export function buildReadRequest(pageId: number, rr: number, final = false): num
     ...rrc,
     SYSEX_END,
   ];
-}
-
-/** True when `bytes` looks like the 41-byte discovery response `45 58 01 ...`. */
-export function isDiscoveryResponse(bytes: readonly number[]): boolean {
-  return (
-    bytes.length === 41 &&
-    bytes[0] === SYSEX_START &&
-    bytes[1] === MANUFACTURER[0] &&
-    bytes[2] === MANUFACTURER[1] &&
-    bytes[3] === CMD_DISCOVERY &&
-    bytes[4] === 0x58 &&
-    bytes[5] === 0x01
-  );
 }
 
 export type ParsedMessage =

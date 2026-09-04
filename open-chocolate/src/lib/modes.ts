@@ -10,6 +10,35 @@
 
 export type ModeView = 'pc' | 'custom' | 'advanced' | 'customKeyboard' | 'mixKey' | 'none';
 
+/** Operating mode identifiers (address 0 in the config blob). */
+export const MODES = [
+  { value: 0x00, label: 'Program Change A' },
+  { value: 0x01, label: 'Program Change B' },
+  { value: 0x02, label: 'Custom' },
+  { value: 0x03, label: 'Advanced Custom' },
+  { value: 0x04, label: 'Manufacturer Control' },
+  { value: 0x05, label: 'Touch Screen (Android)' },
+  { value: 0x06, label: 'Video Model' },
+  { value: 0x07, label: 'Keyboard A' },
+  { value: 0x08, label: 'Keyboard B' },
+  { value: 0x09, label: 'Multimedia Keyboard' },
+  { value: 0x0a, label: 'Custom Keyboard' },
+  { value: 0x0b, label: 'Mix Key' },
+  { value: 0x0c, label: 'Speaker' },
+] as const;
+
+/** Per-footswitch step behaviours (the five Advanced Custom sub-modes). */
+export const FOOTSWITCH_STEPS = [
+  { value: 0x00, label: 'Single tap (single group of information)' },
+  { value: 0x01, label: 'Single tap (two groups switching)' },
+  { value: 0x02, label: 'Press-release (two groups switching)' },
+  { value: 0x03, label: 'Long press' },
+  { value: 0x04, label: 'Short tap - long press' },
+] as const;
+
+/** Footswitch names in protocol order. */
+export const FOOTSWITCH_NAMES = ['A', 'B', 'C', 'D'] as const;
+
 export interface ModeMeta {
   /** Which configuration sub-view to render for this mode. */
   view: ModeView;

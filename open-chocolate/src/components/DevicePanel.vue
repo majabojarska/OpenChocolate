@@ -51,7 +51,12 @@ function statusLabel(status: ChocolateDevice['status']): string {
         v-for="device in devices"
         :key="device.pair.key"
         :class="['device-row', { selected: device.pair.key === selectedKey }]"
+        role="button"
+        tabindex="0"
+        :aria-label="`Select device ${device.pair.name}`"
         @click="$emit('select', device.pair.key)"
+        @keydown.enter.prevent="$emit('select', device.pair.key)"
+        @keydown.space.prevent="$emit('select', device.pair.key)"
       >
         <span
           :class="[

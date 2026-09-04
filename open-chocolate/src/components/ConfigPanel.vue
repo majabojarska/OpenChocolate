@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { FOOTSWITCH_NAMES, FOOTSWITCH_STEPS, MODES } from '../lib/sysex';
-import { MODE_META } from '../lib/modes';
+import { FOOTSWITCH_NAMES, FOOTSWITCH_STEPS, MODES, MODE_META } from '../lib/modes';
 import type { DeviceConfig } from '../lib/device';
 
 const props = defineProps<{
@@ -40,6 +39,16 @@ const channelNumbers = Array.from({ length: 16 }, (_, i) => i + 1);
 
 const fileInput = ref<HTMLInputElement | null>(null);
 
+/** Numeric value of a select / number input event. */
+function numericValue(ev: Event): number {
+  return Number((ev.target as HTMLInputElement).value);
+}
+
+/** Checked state of a checkbox event. */
+function checked(ev: Event): boolean {
+  return (ev.target as HTMLInputElement).checked;
+}
+
 function onImportClick() {
   fileInput.value?.click();
 }
@@ -52,12 +61,12 @@ function onImportFile(ev: Event) {
 }
 
 function onCcInput(bank: number, ev: Event) {
-  const value = Number((ev.target as HTMLInputElement).value) & 0x7f;
+  const value = numericValue(ev) & 0x7f;
   emit('custom-cc', { bank, cc: value, latch: props.config.customCc[bank]?.[1] ?? 0 });
 }
 
 function onCcLatch(bank: number, ev: Event) {
-  const latch = Number((ev.target as HTMLSelectElement).value);
+  const latch = numericValue(ev);
   emit('custom-cc', { bank, cc: props.config.customCc[bank]?.[0] ?? 0, latch });
 }
 </script>
@@ -124,7 +133,7 @@ function onCcLatch(bank: number, ev: Event) {
               @change="
                 $emit('max-banks', {
                   which: (config.mode === 1 ? 1 : 0) as 0 | 1,
-                  count: Number(($event.target as HTMLSelectElement).value),
+                  count: numericValue($event),
                 })
               "
             >
@@ -207,7 +216,7 @@ function onCcLatch(bank: number, ev: Event) {
                   $emit('footswitch', {
                     page: (config.usrPage ?? 0) as 0 | 1,
                     index: i as 0 | 1 | 2 | 3,
-                    step: Number(($event.target as HTMLSelectElement).value),
+                    step: numericValue($event),
                   })
                 "
               >
@@ -253,7 +262,7 @@ function onCcLatch(bank: number, ev: Event) {
             class="control"
             :value="(config.midiChannel ?? 0) + 1"
             :disabled="busy"
-            @change="$emit('midi-channel', Number(($event.target as HTMLSelectElement).value) - 1)"
+            @change="$emit('midi-channel', numericValue($event) - 1)"
           >
             <option v-for="c in channelNumbers" :key="c" :value="c">{{ c }}</option>
           </select>
@@ -265,7 +274,7 @@ function onCcLatch(bank: number, ev: Event) {
             class="control"
             :value="config.maxGroupCount ?? 1"
             :disabled="busy"
-            @change="$emit('group-count', Number(($event.target as HTMLSelectElement).value))"
+            @change="$emit('group-count', numericValue($event))"
           >
             <option v-for="c in groupCounts" :key="c" :value="c">{{ c }}</option>
           </select>
@@ -304,7 +313,7 @@ function onCcLatch(bank: number, ev: Event) {
             class="switch"
             :checked="config.polarity"
             :disabled="busy"
-            @change="$emit('polarity', ($event.target as HTMLInputElement).checked)"
+            @change="$emit('polarity', checked($event))"
           />
         </label>
       </div>

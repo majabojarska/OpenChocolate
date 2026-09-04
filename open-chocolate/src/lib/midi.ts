@@ -29,6 +29,21 @@ export interface MidiPortInfo {
   type: 'input' | 'output';
 }
 
+/**
+ * What the comms service needs from Web MIDI. An interface so tests (and
+ * future transports) can inject a fake instead of a real MidiAccess.
+ */
+export interface MidiTransport {
+  /** Ask for Web MIDI access (sysex required) and attach listeners. */
+  requestAccess(): Promise<void>;
+  /** Group ports into devices so input+output appear as one entry. */
+  listDevices(): MidiDevicePair[];
+  onMessage(cb: (ev: MidiMessageEvent) => void): void;
+  send(key: string, bytes: readonly number[]): Promise<void>;
+  /** Explicitly open an input so the browser starts delivering messages. */
+  openInput(inputId: string): Promise<void>;
+}
+
 /** Strip port-number / direction suffixes for fuzzy in/out matching. */
 export function normalizePortName(name: string): string {
   return name
@@ -100,11 +115,9 @@ export function groupPorts(ports: MidiPortInfo[]): MidiDevicePair[] {
   return [...groups.values()];
 }
 
-export class MidiAccess {
+export class MidiAccess implements MidiTransport {
   private access: MIDIAccess | null = null;
   private listeners: ((ev: MidiMessageEvent) => void)[] = [];
-  private stateChangeCb: (() => void) | null = null;
-  error: string | null = null;
 
   private handler = (event: MIDIMessageEvent) => {
     const port = event.target as MIDIInput;
@@ -117,26 +130,13 @@ export class MidiAccess {
   /** Ask for Web MIDI access (sysex required) and attach listeners. */
   async requestAccess(): Promise<void> {
     if (!navigator.requestMIDIAccess) {
-      this.error =
-        'Web MIDI API not available. Use Chrome, Edge or Firefox 108+ over HTTPS or localhost.';
-      throw new Error(this.error);
+      throw new Error(
+        'Web MIDI API not available. Use Chrome, Edge or Firefox 108+ over HTTPS or localhost.'
+      );
     }
-    try {
-      this.access = await navigator.requestMIDIAccess({ sysex: true });
-      this.error = null;
-    } catch (err) {
-      this.error = err instanceof Error ? err.message : String(err);
-      throw err;
-    }
+    this.access = await navigator.requestMIDIAccess({ sysex: true });
     this.attachListeners();
-    this.access.onstatechange = () => {
-      this.attachListeners();
-      this.stateChangeCb?.();
-    };
-  }
-
-  onStateChange(cb: () => void): void {
-    this.stateChangeCb = cb;
+    this.access.onstatechange = () => this.attachListeners();
   }
 
   /** Group ports into devices so input+output appear as one entry. */
@@ -178,14 +178,6 @@ export class MidiAccess {
     const input = this.access.inputs.get(inputId);
     if (!input) throw new Error(`Unknown MIDI input: ${inputId}`);
     await input.open();
-  }
-
-  async closeInput(inputId: string): Promise<void> {
-    const input = this.access?.inputs.get(inputId);
-    if (input) {
-      input.onmidimessage = null;
-      await input.close();
-    }
   }
 
   private attachListeners(): void {

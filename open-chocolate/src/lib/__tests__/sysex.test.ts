@@ -11,7 +11,6 @@ import {
   encode14,
   encodeAddress,
   footswitchAddr,
-  isDiscoveryResponse,
   parseMessage,
 } from '../sysex';
 
@@ -152,7 +151,6 @@ describe('parsing', () => {
     const resp = hex(
       'f0 00 32 45 58 01 00 00 23 6f 5e 51 1b 44 4e 1c 36 50 58 55 1b 77 0b 4c 18 36 00 00 00 00 00 00 00 00 00 00 00 00 00 0e f7'
     );
-    expect(isDiscoveryResponse(resp)).toBe(true);
     expect(parseMessage(resp).kind).toBe('discovery-response');
   });
 

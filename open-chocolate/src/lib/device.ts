@@ -4,9 +4,15 @@
  * Implements discovery (across all MIDI devices), the connect/init sequence
  * (configuration read-back), configuration writes and a message monitor.
  * No Vue/UI code here - the UI subscribes to listeners and calls methods.
+ *
+ * This service is the single owner of all device state. Public getters hand
+ * out frozen snapshots, so listeners can never mutate that state by accident;
+ * writes go through the async methods below. Expectations are scoped to a
+ * device and aborted on disconnect, so stale responses can never resolve an
+ * operation of another (or a later) session.
  */
 
-import { MidiAccess, type MidiDevicePair, type MidiMessageEvent } from './midi';
+import { MidiAccess, type MidiDevicePair, type MidiMessageEvent, type MidiTransport } from './midi';
 import {
   ADDR,
   buildConfigWrite,
@@ -20,6 +26,7 @@ import {
   toHex,
   type ParsedMessage,
 } from './sysex';
+import { configFromSnapshot, pagesFromSnapshot, toSnapshot, type CommsSnapshot } from './snapshot';
 
 /** Rolling request counter observed in the official app capture, per read. */
 const INIT_READ_RR = [
@@ -67,8 +74,8 @@ export interface DeviceConfig {
   maxBanksPcB: number | null;
   /** Advanced Custom variant page: 0 = mode 1, 1 = mode 2. */
   usrPage: number | null;
-  /** Custom mode per-bank values: [cc, latch] per bank (5 slots). */
-  customCc: ([number, number] | [null, null])[];
+  /** Custom mode per-bank [cc, latch], or null while unknown (5 slots). */
+  customCc: ([number, number] | null)[];
   /** Step behaviour of footswitches A, B, C, D (Advanced Custom). */
   footswitchModes: (number | null)[];
 }
@@ -83,7 +90,7 @@ export function emptyConfig(): DeviceConfig {
     maxBanksPcA: null,
     maxBanksPcB: null,
     usrPage: null,
-    customCc: Array.from({ length: CUSTOM_CC_BANKS }, () => [null, null] as [null, null]),
+    customCc: Array.from({ length: CUSTOM_CC_BANKS }, () => null),
     footswitchModes: [null, null, null, null],
   };
 }
@@ -95,10 +102,19 @@ export interface ChocolateDevice {
 }
 
 interface PendingExpectation {
+  /** Only messages from this device may satisfy the expectation. */
+  deviceKey: string;
   match: (msg: ParsedMessage) => boolean;
   resolve: (msg: ParsedMessage) => void;
   reject: (err: Error) => void;
   timer: number;
+}
+
+export interface CommsOptions {
+  /** How long to wait for discovery responses during a scan (ms). */
+  scanSettleMs?: number;
+  /** Per-read response timeout before retrying (ms). */
+  readTimeoutMs?: number;
 }
 
 const sleep = (ms: number) => new Promise((r) => globalThis.setTimeout(r, ms));
@@ -121,8 +137,23 @@ export function frameStream(bytes: Uint8Array, state: number[]): number[][] {
   return frames;
 }
 
+/** Recursively freeze a clone so listeners cannot mutate service state. */
+function snapshotDevice(device: ChocolateDevice): ChocolateDevice {
+  return deepFreeze(structuredClone(device));
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object') {
+    for (const v of Object.values(value)) deepFreeze(v);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 export class CommsService {
-  readonly midi = new MidiAccess();
+  readonly midi: MidiTransport;
+  private readonly scanSettleMs: number;
+  private readonly readTimeoutMs: number;
   private devices = new Map<string, ChocolateDevice>();
   private connectedKey: string | null = null;
   private connectingDevice: ChocolateDevice | null = null;
@@ -138,11 +169,16 @@ export class CommsService {
   private discoveryResponders: Set<string> | null = null;
   /** port id -> device name, for monitor labels. */
   private portLabels = new Map<string, string>();
+  /** Bumped whenever a new session starts; stale sequences abort on it. */
+  private session = 0;
+  /** Raw read-back payloads of the last read-back, per device key. */
+  private rawPages = new Map<string, Map<number, Uint8Array>>();
 
-  lastError: string | null = null;
-
-  /** Raw payloads of the last read-back, keyed by page index. */
-  readonly rawPages = new Map<number, Uint8Array>();
+  constructor(midi: MidiTransport = new MidiAccess(), options: CommsOptions = {}) {
+    this.midi = midi;
+    this.scanSettleMs = options.scanSettleMs ?? 1500;
+    this.readTimeoutMs = options.readTimeoutMs ?? READ_TIMEOUT_MS;
+  }
 
   onMonitor(cb: (entry: MonitorEntry) => void): void {
     this.monitorListeners.push(cb);
@@ -158,12 +194,34 @@ export class CommsService {
     this.stateListeners.push(cb);
   }
 
+  /** Frozen snapshots - the UI can read but never mutate them. */
   getDevices(): ChocolateDevice[] {
-    return [...this.devices.values()];
+    return [...this.devices.values()].map(snapshotDevice);
   }
 
   getConnected(): ChocolateDevice | null {
+    const device = this.connectedInternal;
+    return device ? snapshotDevice(device) : null;
+  }
+
+  private get connectedInternal(): ChocolateDevice | null {
     return this.connectedKey ? (this.devices.get(this.connectedKey) ?? null) : null;
+  }
+
+  /** Like `connectedInternal`, but throws a friendly error when absent. */
+  private requireConnected(): ChocolateDevice {
+    const device = this.connectedInternal;
+    if (!device) throw new Error('Not connected');
+    return device;
+  }
+
+  private pagesFor(deviceKey: string): Map<number, Uint8Array> {
+    let pages = this.rawPages.get(deviceKey);
+    if (!pages) {
+      pages = new Map();
+      this.rawPages.set(deviceKey, pages);
+    }
+    return pages;
   }
 
   private emitState(): void {
@@ -192,18 +250,37 @@ export class CommsService {
     await this.midi.send(portId, bytes);
   }
 
-  /** Wait for the next matching message or reject after `timeoutMs`. */
+  /** Wait for the next matching message from `deviceKey` or reject after `timeoutMs`. */
   private expect(
+    deviceKey: string,
     match: (msg: ParsedMessage) => boolean,
     timeoutMs: number
   ): Promise<ParsedMessage> {
     return new Promise((resolve, reject) => {
-      const timer = globalThis.setTimeout(() => {
-        this.pending = this.pending.filter((p) => p.timer !== timer);
+      const expectation: PendingExpectation = { deviceKey, match, resolve, reject, timer: 0 };
+      expectation.timer = globalThis.setTimeout(() => {
+        this.pending = this.pending.filter((p) => p !== expectation);
         reject(new Error('Device did not respond (timeout)'));
       }, timeoutMs);
-      this.pending.push({ match, resolve, reject, timer });
+      this.pending.push(expectation);
     });
+  }
+
+  /** Reject and drop all pending expectations (session ended or aborting). */
+  private failPending(err: Error): void {
+    const pending = this.pending;
+    this.pending = [];
+    for (const p of pending) {
+      globalThis.clearTimeout(p.timer);
+      p.reject(err);
+    }
+  }
+
+  /** Start a new session: any in-flight operation is aborted immediately. */
+  private beginSession(): number {
+    this.session++;
+    this.failPending(new Error('Device disconnected'));
+    return this.session;
   }
 
   /**
@@ -225,6 +302,7 @@ export class CommsService {
     }
 
     // Fresh list - only responders will be added back.
+    const previous = this.devices;
     this.devices = new Map();
     this.emitState();
 
@@ -236,13 +314,19 @@ export class CommsService {
         await this.tx(pair.outputId, request);
       }
     }
-    await sleep(1500); // give devices time to answer
+    await sleep(this.scanSettleMs); // give devices time to answer
     this.discoveryResponders = null;
 
     for (const inputKey of responders) {
       const pair = pairs.find((p) => p.inputId === inputKey);
       if (!pair) continue;
-      this.devices.set(pair.key, { pair, status: 'detected', config: emptyConfig() });
+      // Keep status/config of devices we already know (e.g. the connected one).
+      const prev = previous.get(pair.key);
+      this.devices.set(pair.key, {
+        pair,
+        status: pair.key === this.connectedKey ? 'connected' : 'detected',
+        config: prev?.config ?? emptyConfig(),
+      });
     }
     // A previously connected device that no longer responds is gone.
     if (this.connectedKey && !this.devices.has(this.connectedKey)) {
@@ -263,6 +347,8 @@ export class CommsService {
       this.rxState.set(ev.key, buf);
     }
     const frames = frameStream(ev.bytes, buf);
+    if (frames.length === 0) return;
+    const deviceKey = this.deviceKeyForInput(ev.key);
     for (const frame of frames) {
       this.log('RX', ev.key, Uint8Array.from(frame));
       const msg = parseMessage(frame);
@@ -270,13 +356,21 @@ export class CommsService {
         this.discoveryResponders.add(ev.key);
         continue;
       }
-      this.dispatch(msg);
+      this.dispatch(deviceKey, msg);
     }
   };
 
-  private dispatch(msg: ParsedMessage): void {
+  /** Device key owning an input port, if any (expectations are per device). */
+  private deviceKeyForInput(inputKey: string): string | undefined {
+    for (const device of this.devices.values()) {
+      if (device.pair.inputId === inputKey) return device.pair.key;
+    }
+    return undefined;
+  }
+
+  private dispatch(deviceKey: string | undefined, msg: ParsedMessage): void {
     this.pending = this.pending.filter((p) => {
-      if (p.match(msg)) {
+      if (p.deviceKey === deviceKey && p.match(msg)) {
         globalThis.clearTimeout(p.timer);
         p.resolve(msg);
         return false;
@@ -285,35 +379,37 @@ export class CommsService {
     });
   }
 
-  /** Connect: open the input port and run the full read-back sequence. */
-  async connect(device: ChocolateDevice): Promise<void> {
-    const current = this.getConnected();
+  /** Connect by device key: open the input port and run the read-back sequence. */
+  async connect(key: string): Promise<void> {
+    if (this.connectingDevice) throw new Error('Connection already in progress');
+    const device = this.devices.get(key);
+    if (!device) throw new Error('Unknown device');
+
+    const current = this.connectedInternal;
     if (current && current !== device) current.status = 'detected';
 
     const outputId = device.pair.outputId;
     const inputId = device.pair.inputId;
     if (!outputId || !inputId) {
       device.status = 'failed';
-      this.lastError = 'Device exposes no usable MIDI ports';
       this.emitState();
-      throw new Error(this.lastError);
+      throw new Error('Device exposes no usable MIDI ports');
     }
 
     device.status = 'connecting';
     this.connectingDevice = device;
+    const session = this.beginSession();
     this.emitState();
 
     try {
       // Best-effort explicit open. Delivery already starts when a handler is
       // set, and a hung open() must never block connecting.
       await Promise.race([this.midi.openInput(inputId), sleep(OPEN_TIMEOUT_MS)]);
-      await this.runInitSequence(outputId);
+      await this.runInitSequence(outputId, key, session);
       device.status = 'connected';
-      this.connectedKey = device.pair.key;
-      this.lastError = null;
+      this.connectedKey = key;
     } catch (err) {
       device.status = 'failed';
-      this.lastError = err instanceof Error ? err.message : String(err);
       this.connectedKey = null;
       throw err;
     } finally {
@@ -322,8 +418,10 @@ export class CommsService {
     }
   }
 
+  /** Disconnect: abort in-flight operations and drop the connected device. */
   disconnect(): void {
-    const device = this.getConnected();
+    this.beginSession();
+    const device = this.connectedInternal;
     if (device) device.status = 'detected';
     this.connectedKey = null;
     this.emitState();
@@ -339,12 +437,24 @@ export class CommsService {
    * the settings of the captured session; they are intentionally not sent
    * automatically - the UI sends writes when the user changes settings.
    */
-  private async runInitSequence(outputKey: string): Promise<void> {
+  private async runInitSequence(
+    outputKey: string,
+    deviceKey: string,
+    session: number
+  ): Promise<void> {
+    const assertActive = (): void => {
+      if (session !== this.session) throw new Error('Device disconnected');
+    };
+
     await this.tx(outputKey, buildDiscoveryRequest());
     // The device answers every discovery request; wait briefly and move on.
-    await this.expect((m) => m.kind === 'discovery-response', 2000).catch(() => undefined);
+    await this.expect(deviceKey, (m) => m.kind === 'discovery-response', 2000).catch(
+      () => undefined
+    );
+    assertActive();
 
     for (let i = 0; i < READ_PAGE_COUNT; i++) {
+      assertActive();
       const final = i === READ_PAGE_COUNT - 1;
       const pageId = i * READ_PAGE_STRIDE;
       const match = (m: ParsedMessage) =>
@@ -354,10 +464,13 @@ export class CommsService {
       // whole session, but a silent device must fail fast and clearly.
       let resp: ParsedMessage | null = null;
       for (let attempt = 1; attempt <= 2 && !resp; attempt++) {
+        assertActive();
         await this.tx(outputKey, buildReadRequest(pageId, INIT_READ_RR[i], final));
         try {
-          resp = await this.expect(match, READ_TIMEOUT_MS);
+          resp = await this.expect(deviceKey, match, this.readTimeoutMs);
         } catch {
+          // A stale session must abort instead of retrying on a dead port.
+          assertActive();
           if (attempt === 2) {
             throw new Error(
               `Device stopped answering configuration reads (page ${i + 1}/${READ_PAGE_COUNT}). Disconnect and rescan.`
@@ -373,7 +486,7 @@ export class CommsService {
 
   /** Pull known configuration values out of a page payload. */
   private absorbPage(index: number, payload: Uint8Array): void {
-    const device = this.connectingDevice ?? this.getConnected();
+    const device = this.connectingDevice ?? this.connectedInternal;
     if (!device) return;
     if (index === 0 && payload.length > 2) {
       // Page 0 begins the config blob: [mode, trs, channel, custom-mode data...]
@@ -382,13 +495,16 @@ export class CommsService {
       if (payload[2] <= 15) device.config.midiChannel = payload[2];
       // Custom-mode banks: blob 3+2b = latch, 4+2b = CC value (per the
       // official app's FC2Struct: usr[b][0] = toggle, usr[b][1] = CC).
-      for (let bank = 0; bank < CUSTOM_CC_BANKS; bank++) {
-        const latch = payload[3 + bank * 2];
-        const cc = payload[4 + bank * 2];
-        device.config.customCc[bank] = [cc, latch];
+      const lastBankByte = 3 + (CUSTOM_CC_BANKS - 1) * 2 + 1;
+      if (payload.length > lastBankByte) {
+        for (let bank = 0; bank < CUSTOM_CC_BANKS; bank++) {
+          const latch = payload[3 + bank * 2];
+          const cc = payload[4 + bank * 2];
+          device.config.customCc[bank] = [cc, latch];
+        }
       }
     }
-    this.rawPages.set(index, Uint8Array.from(payload));
+    this.pagesFor(device.pair.key).set(index, Uint8Array.from(payload));
   }
 
   /**
@@ -396,150 +512,119 @@ export class CommsService {
    * the decoded settings.
    */
   async reread(): Promise<void> {
-    const device = this.getConnected();
-    if (!device) throw new Error('Not connected');
+    const device = this.requireConnected();
     const outputId = device.pair.outputId;
     if (!outputId) throw new Error('Device has no MIDI output');
-    await this.runInitSequence(outputId);
+    await this.runInitSequence(outputId, device.pair.key, this.session);
     this.emitState();
   }
 
   /** Send a configuration write and wait for the 01 08 acknowledgement. */
   async writeConfig(addr: number, value: number): Promise<void> {
-    const device = this.getConnected();
-    if (!device) throw new Error('Not connected');
-    const outputId = device.pair.outputId;
-    if (!outputId) throw new Error('Device has no MIDI output');
-    await this.tx(outputId, buildConfigWrite(addr, value));
-    await this.expect((m) => m.kind === 'ack', 2000);
+    const device = this.requireConnected();
+    if (!device.pair.outputId) throw new Error('Device has no MIDI output');
+    await this.tx(device.pair.outputId, buildConfigWrite(addr, value));
+    await this.expect(device.pair.key, (m) => m.kind === 'ack', 2000);
   }
 
   async setMode(mode: number): Promise<void> {
+    const device = this.requireConnected();
     await this.writeConfig(ADDR.mode, mode);
-    const device = this.getConnected();
-    if (device) device.config.mode = mode;
+    device.config.mode = mode;
     this.emitState();
   }
 
   async setMidiInterface(trs: boolean): Promise<void> {
+    const device = this.requireConnected();
     const value = trs ? 1 : 0;
     await this.writeConfig(ADDR.midiInterface, value);
-    this.getConnected()!.config.midiInterface = value;
+    device.config.midiInterface = value;
     this.emitState();
   }
 
   async setMidiChannel(ch0: number): Promise<void> {
+    const device = this.requireConnected();
     await this.writeConfig(ADDR.midiChannel, ch0);
-    this.getConnected()!.config.midiChannel = ch0;
+    device.config.midiChannel = ch0;
     this.emitState();
   }
 
   async setPolarity(enabled: boolean): Promise<void> {
+    const device = this.requireConnected();
     const value = enabled ? 1 : 0;
     await this.writeConfig(ADDR.polarity, value);
-    this.getConnected()!.config.polarity = enabled;
+    device.config.polarity = enabled;
     this.emitState();
   }
 
   async setMaxGroupCount(count: number): Promise<void> {
+    const device = this.requireConnected();
     await this.writeConfig(ADDR.maxGroupCount, count - 1);
-    this.getConnected()!.config.maxGroupCount = count;
+    device.config.maxGroupCount = count;
     this.emitState();
   }
 
   /** Set the maximum bank count (1-32) of Program Change mode A or B. */
   async setMaxBanks(which: 0 | 1, count: number): Promise<void> {
+    const device = this.requireConnected();
     const addr = which === 0 ? ADDR.maxBanksPcA : ADDR.maxBanksPcB;
     await this.writeConfig(addr, count - 1);
-    const device = this.getConnected();
-    if (device) {
-      if (which === 0) device.config.maxBanksPcA = count;
-      else device.config.maxBanksPcB = count;
-    }
+    if (which === 0) device.config.maxBanksPcA = count;
+    else device.config.maxBanksPcB = count;
     this.emitState();
   }
 
   /** Select the Advanced Custom variant page (0 = mode 1, 1 = mode 2). */
   async setUsrPage(page: 0 | 1): Promise<void> {
+    const device = this.requireConnected();
     await this.writeConfig(ADDR.usrPage, page);
-    this.getConnected()!.config.usrPage = page;
+    device.config.usrPage = page;
     this.emitState();
   }
 
   async setCustomCc(bank: number, cc: number, latch: number): Promise<void> {
-    await this.writeConfig(ADDR.customBankFirst + bank * 2, latch);
-    await this.writeConfig(ADDR.customBankFirst + bank * 2 + 1, cc);
-    this.getConnected()!.config.customCc[bank] = [cc, latch];
+    const device = this.requireConnected();
+    const base = ADDR.customBankFirst + bank * 2;
+    await this.writeConfig(base, latch);
+    await this.writeConfig(base + 1, cc);
+    device.config.customCc[bank] = [cc, latch];
     this.emitState();
   }
 
   /** Set the step behaviour of one footswitch within an Advanced Custom page. */
   async setFootswitchMode(page: 0 | 1, index: 0 | 1 | 2 | 3, step: number): Promise<void> {
+    const device = this.requireConnected();
     await this.writeConfig(footswitchAddr(page, index), step);
-    this.getConnected()!.config.footswitchModes[index] = step;
+    device.config.footswitchModes[index] = step;
     this.emitState();
   }
 
   /** Snapshot of the connected device config for import/export. */
   exportState(): CommsSnapshot {
-    const device = this.getConnected();
-    return {
-      app: 'open-chocolate',
-      version: 1,
-      savedAt: new Date().toISOString(),
-      device: device ? { name: device.pair.name, manufacturer: device.pair.manufacturer } : null,
-      config: device ? JSON.parse(JSON.stringify(device.config)) : emptyConfig(),
-      rawPages: [...this.rawPages.entries()].map(([index, payload]) => ({
-        index,
-        payloadHex: Array.from(payload, (b) => b.toString(16).padStart(2, '0')).join(''),
-      })),
-    };
+    const device = this.connectedInternal;
+    return toSnapshot(
+      device ? { name: device.pair.name, manufacturer: device.pair.manufacturer } : null,
+      device ? device.config : emptyConfig(),
+      device ? this.pagesFor(device.pair.key) : new Map()
+    );
   }
 
   /** Load a snapshot into app state (does not touch the device). */
   importState(snapshot: CommsSnapshot): void {
-    const device = this.getConnected();
+    const device = this.connectedInternal;
     if (!device) throw new Error('Connect to a device before importing a configuration');
-    const cfg = snapshot.config;
-    device.config = {
-      mode: numOrNull(cfg.mode),
-      midiInterface: numOrNull(cfg.midiInterface),
-      midiChannel: numOrNull(cfg.midiChannel),
-      polarity: Boolean(cfg.polarity),
-      maxGroupCount: numOrNull(cfg.maxGroupCount),
-      maxBanksPcA: numOrNull(cfg.maxBanksPcA),
-      maxBanksPcB: numOrNull(cfg.maxBanksPcB),
-      usrPage: numOrNull(cfg.usrPage),
-      customCc: Array.from({ length: CUSTOM_CC_BANKS }, (_, i) => {
-        const pair = Array.isArray(cfg.customCc) ? cfg.customCc[i] : null;
-        if (Array.isArray(pair) && pair.length === 2) {
-          const cc = numOrNull(pair[0]);
-          const latch = numOrNull(pair[1]);
-          if (cc !== null && latch !== null) return [cc, latch] as [number, number];
-        }
-        return [null, null] as [null, null];
-      }),
-      footswitchModes: [0, 1, 2, 3].map((i) =>
-        numOrNull(Array.isArray(cfg.footswitchModes) ? cfg.footswitchModes[i] : null)
-      ),
-    };
-    if (Array.isArray(snapshot.rawPages)) {
-      for (const page of snapshot.rawPages) {
-        if (typeof page.index === 'number' && typeof page.payloadHex === 'string') {
-          const bytes = new Uint8Array(
-            (page.payloadHex.match(/.{2}/g) ?? []).map((h) => parseInt(h, 16))
-          );
-          this.rawPages.set(page.index, bytes);
-        }
-      }
+    device.config = configFromSnapshot(snapshot);
+    const pages = this.pagesFor(device.pair.key);
+    pages.clear();
+    for (const [index, bytes] of pagesFromSnapshot(snapshot)) {
+      pages.set(index, bytes);
     }
     this.emitState();
   }
 
   /** Push the currently loaded config to the connected device. */
   async applyAll(): Promise<void> {
-    const device = this.getConnected();
-    if (!device) throw new Error('Not connected');
+    const device = this.requireConnected();
     const cfg = device.config;
     if (cfg.mode !== null) await this.setMode(cfg.mode);
     if (cfg.midiInterface !== null) await this.setMidiInterface(cfg.midiInterface === 1);
@@ -550,8 +635,8 @@ export class CommsService {
     if (cfg.maxBanksPcB !== null) await this.setMaxBanks(1, cfg.maxBanksPcB);
     if (cfg.usrPage !== null) await this.setUsrPage(cfg.usrPage as 0 | 1);
     for (let bank = 0; bank < CUSTOM_CC_BANKS; bank++) {
-      const [cc, latch] = cfg.customCc[bank];
-      if (cc !== null && latch !== null) await this.setCustomCc(bank, cc, latch);
+      const pair = cfg.customCc[bank];
+      if (pair) await this.setCustomCc(bank, pair[0], pair[1]);
     }
     const page = (cfg.usrPage ?? 0) as 0 | 1;
     for (let i = 0; i < 4; i++) {
@@ -561,15 +646,4 @@ export class CommsService {
   }
 }
 
-export interface CommsSnapshot {
-  app: string;
-  version: number;
-  savedAt: string;
-  device: { name: string; manufacturer: string | null } | null;
-  config: DeviceConfig;
-  rawPages?: { index: number; payloadHex: string }[];
-}
-
-function numOrNull(v: unknown): number | null {
-  return typeof v === 'number' && Number.isFinite(v) ? v : null;
-}
+export type { CommsSnapshot };

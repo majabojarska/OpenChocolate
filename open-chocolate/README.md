@@ -58,9 +58,11 @@ npm run preview
 ```
 src/
   lib/
-    sysex.ts    protocol codec: message builders, parsers, checksums
-    midi.ts     Web MIDI wrapper (ports, grouping, send/receive)
-    device.ts   comms service: discovery, connect, config, import/export
+    sysex.ts      protocol codec: message builders, parsers, checksums
+    midi.ts       Web MIDI wrapper (ports, grouping, send/receive)
+    device.ts     comms service: discovery, connect, config, import/export
+    snapshot.ts   config snapshot serialization (validated JSON import)
+    modes.ts      per-mode UI metadata
   components/
     DevicePanel.vue   device list, dots, connect/disconnect
     ConfigPanel.vue   configuration editors, import/export
@@ -69,7 +71,9 @@ src/
 ```
 
 All MIDI/SysEx handling lives in `src/lib`; UI components only call the
-comms service.
+comms service. The service is the single owner of device state: it emits
+frozen snapshots to the UI and commands are addressed by device key, so
+stale responses can never leak across connect/disconnect sessions.
 
 ## Status / limitations
 
@@ -82,7 +86,8 @@ comms service.
 ## Development
 
 ```sh
-npm test            # vitest (protocol codec tests, bit-perfect vs captures)
+npm test            # vitest (protocol codec bit-perfect vs captures,
+                    #  snapshot import/export round-trips, comms orchestration)
 npm run lint        # eslint
 npm run format      # prettier
 npm run build       # type-check + production build

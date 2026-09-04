@@ -6,6 +6,27 @@ import tsParser from '@typescript-eslint/parser';
 import prettier from 'eslint-plugin-prettier';
 import prettierConfig from 'eslint-config-prettier';
 
+const browserGlobals = {
+  browser: 'readonly',
+  node: 'readonly',
+};
+
+const tsRules = {
+  'no-unused-vars': 'off',
+  'no-undef': 'off',
+  '@typescript-eslint/no-unused-vars': [
+    'error',
+    { argsIgnorePattern: '^_', varsIgnorePattern: '^[A-Z_]+$' },
+  ],
+  '@typescript-eslint/no-explicit-any': 'warn',
+  '@typescript-eslint/no-non-null-assertion': 'off',
+  '@typescript-eslint/no-empty-function': 'off',
+  '@typescript-eslint/no-namespace': 'off',
+  '@typescript-eslint/semi': 'off',
+  '@typescript-eslint/consistent-type-imports': 'error',
+  'prettier/prettier': 'error',
+};
+
 export default [
   // Global ignores
   {
@@ -38,11 +59,7 @@ export default [
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
-      globals: {
-        browser: 'readonly',
-        node: 'readonly',
-        es2021: 'readonly',
-      },
+      globals: browserGlobals,
     },
     rules: {
       'prettier/prettier': 'error',
@@ -58,32 +75,13 @@ export default [
         ecmaVersion: 'latest',
         sourceType: 'module',
       },
-      globals: {
-        browser: 'readonly',
-        node: 'readonly',
-        es2021: 'readonly',
-      },
+      globals: browserGlobals,
     },
     plugins: {
       '@typescript-eslint': tseslint,
       prettier: prettier,
     },
-    rules: {
-      // 'no-unused-vars': 'off',
-      'no-unused-vars': 'off',
-      'no-undef': 'off',
-      '@typescript-eslint/no-unused-vars': [
-        'error',
-        { argsIgnorePattern: '^_', varsIgnorePattern: '^[A-Z_]+$' },
-      ],
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-non-null-assertion': 'off',
-      '@typescript-eslint/no-empty-function': 'off',
-      '@typescript-eslint/no-namespace': 'off',
-      '@typescript-eslint/semi': 'off',
-      '@typescript-eslint/consistent-type-imports': 'error',
-      'prettier/prettier': 'error',
-    },
+    rules: tsRules,
   },
 
   // Vue files
@@ -97,11 +95,7 @@ export default [
         sourceType: 'module',
         extraFileExtensions: ['.vue'],
       },
-      globals: {
-        browser: 'readonly',
-        node: 'readonly',
-        es2021: 'readonly',
-      },
+      globals: browserGlobals,
     },
     plugins: {
       '@typescript-eslint': tseslint,
@@ -109,17 +103,8 @@ export default [
       prettier: prettier,
     },
     rules: {
+      ...tsRules,
       'vue/multi-word-component-names': 'off',
-      'no-unused-vars': 'off',
-      'no-undef': 'off',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-non-null-assertion': 'off',
-      '@typescript-eslint/no-empty-function': 'off',
-      '@typescript-eslint/no-namespace': 'off',
-      '@typescript-eslint/semi': 'off',
-      '@typescript-eslint/consistent-type-imports': 'error',
-      'prettier/prettier': 'error',
     },
   },
 ];
