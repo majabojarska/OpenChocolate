@@ -22,45 +22,90 @@ The supplied discovery capture also contains a 41-byte response beginning
 
 ## Open/handshake
 
-Open traffic uses command `0D`, subcommand `41`, and a 20-byte record. The
-capture contains multiple records with changing parameters, so the complete
-handshake is not a single fixed message.
+The captured initialization sequence is:
+
+1. Send the discovery request above.
+2. Receive the 41-byte `45 58` discovery response.
+3. Send twenty-four `0D 41` read requests. Each request is 20 bytes and has the
+   form `F0 00 32 0D 41 00 00 00 02 ss ss ss ss 10 7E 00 rr rr F7`.
+   The selector bytes advance through the device configuration records.
+4. Receive a 1173-byte `0D 49` response after each read request. The response
+   echoes the selector and contains the corresponding configuration payload.
+5. Send one final `0D 41` request with selector `27 35 01 00` and marker
+   `70 36`; the device answers with a 521-byte `0D 79` response.
+6. Send six 21-byte `09 49` configuration writes (mode/custom settings), each
+   followed by the 12-byte `01 08` acknowledgement.
+
+Thus opening and loading configuration is a request/response exchange; it is
+not a single fixed 16- or 20-byte “open” message. The exact request selectors
+observed in order are:
+
+```text
+00 00 00 00, 71 07 00 00, 62 0F 00 00, 53 17 00 00,
+44 1F 00 00, 35 27 00 00, 26 2F 00 00, 17 37 00 00,
+08 3F 00 00, 79 46 00 00, 6A 4E 00 00, 5B 56 00 00,
+4C 5E 00 00, 3D 66 00 00, 2E 6E 00 00, 1F 76 00 00,
+10 7E 00 00, 01 06 01 00, 72 0D 01 00, 63 15 01 00,
+54 1D 01 00, 45 25 01 00, 36 2D 01 00, 27 35 01 00
+```
 
 ## Configuration commands
 
-UI configuration writes use a 21-byte command:
+### Configuration write structure
+
+A standard configuration write is a 21-byte SysEx message:
 
 ```text
-F0 00 32 09 49 ss ss ss ss vv vv vv vv vv vv vv vv vv vv cc F7
+F0 MM MM CC SS PP PP PP PP VV VV VV VV TT PP PP PP PP DD CC CC F7
 ```
 
-The selector occupies bytes 9-12, the selected value is normally byte 18, and
-byte 19 is a validation/check byte. The checksum algorithm has not been
-established.
+| Offset | Size | Field         | Meaning                           |
+| -----: | ---: | ------------- | --------------------------------- |
+|      0 |    1 | `F0`          | SysEx start                       |
+|    1-2 |    2 | `00 32`       | Manufacturer identifier           |
+|      3 |    1 | `09`          | Configuration command class       |
+|      4 |    1 | `49`          | Configuration-write subcommand    |
+|    5-8 |    4 | `00 00 00 02` | Fixed message parameter           |
+|   9-12 |    4 | selector      | Selects the setting being changed |
+|     13 |    1 | `10`          | Fixed data marker                 |
+|  14-16 |    3 | `00 00 00`    | Reserved                          |
+|     17 |    1 | value         | Setting value                     |
+|  18-19 |    2 | checksum      | Two 7-bit validation bytes        |
+|     20 |    1 | `F7`          | SysEx end                         |
 
-Observed selectors and values include:
-
-| Operation                    | Selector/value observed                                |
-| ---------------------------- | ------------------------------------------------------ |
-| Polarity disabled/enabled    | selector `5A 38 01 00`, value `00`/`01`                |
-| Maximum groups 1, 3, 5, 7, 8 | selector `57 38 01 00`, value `00`/`02`/`04`/`06`/`07` |
-| Program Change A/B           | selector `00 00 00 00`, value `00`/`01`                |
-| Manufacturer control         | value `04`                                             |
-| Touch-screen Android         | value `05`                                             |
-| Video                        | value `06`                                             |
-| Keyboard A/B                 | values `07`/`08`                                       |
-| Multimedia keyboard          | value `09`                                             |
-| Custom keyboard              | value `0A`                                             |
-| Mix key                      | value `0B`                                             |
-| Speaker                      | value `0C`                                             |
-| Advanced custom              | value `03`                                             |
-
-After configuration, the device commonly responds with this 12-byte
-acknowledgement:
+All payload bytes must remain MIDI-safe (`0x00`-`0x7F`). The selector and value
+are interpreted by the selected configuration family. For example, operating
+mode writes use selector `00 00 00 00`, while groups and polarity use their
+own selectors documented in their own sections.
 
 ```text
 F0 00 32 01 08 00 00 00 00 7F 01 F7
 ```
+
+## Known configuration selectors
+
+The selector occupies offsets 9-12 of a `09 49` configuration write. The
+following selectors are confirmed by the supplied captures or the referenced
+external implementation:
+
+| Selector                    | Configuration family                  | Value at offset 17                   |
+| --------------------------- | ------------------------------------- | ------------------------------------ |
+| `00 00 00 00`               | Operating mode                        | Mode identifier                      |
+| `5A 38 01 00`               | Polarity reversal                     | `00` disabled, `01` enabled          |
+| `57 38 01 00`               | Maximum group count                   | `group count - 1`                    |
+| `01 00 00 00`               | MIDI interface type                   | `00` expression pedal, `01` TRS-MIDI |
+| `5D 00 00 00`               | Footswitch A mode                     | Mode identifier                      |
+| `7E 03 00 00`               | Footswitch B mode                     | Mode identifier                      |
+| `1F 07 00 00`               | Footswitch C mode                     | Mode identifier                      |
+| UNKNOWN                     | Footswitch D mode                     | Mode identifier                      |
+| `02 00 00 00`               | Custom CC value, bank 1               | CC number                            |
+| `03 00 00 00`               | Custom CC latch, bank 1               | `00` momentary, `01` latching        |
+| `30 0E 00 00`–`3E 0E 00 00` | Advanced Custom per-switch attributes | Attribute value                      |
+
+For Custom CC, the first selector byte advances by `02` per bank (`02`, `04`,
+`06`, `08`, `0A` for CC and `03`, `05`, `07`, `09`, `0B` for latch). Advanced
+Custom selectors advance by `04` per switch; the second selector byte `0E`
+requests an immediate live write.
 
 ## Footswitch selection
 
@@ -80,63 +125,53 @@ Bank edits are segmented transfers, not one monolithic message:
 
 No fixed four-footswitch offset mapping has been established from the captures.
 
-## Bit-perfect configuration examples
+## Bit-perfect examples: selector `00 00 00 00`
 
-The following are complete host-to-device messages copied from the captures
-(spaces are formatting only).
+Only captured commands with selector bytes `00 00 00 00` are listed below.
+Groups and polarity are documented in their respective sections above.
+Spaces are formatting only.
 
-### Polarity
+| Mode                   | Request                                                          | Mode Value | Checksum |
+| ---------------------- | ---------------------------------------------------------------- | ---------- | -------- |
+| Program Change A       | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 00 74 03 F7` | `00`       | `74 03`  |
+| Program Change B       | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 01 72 03 F7` | `01`       | `72 03`  |
+| Advanced Custom        | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 03 6E 03 F7` | `03`       | `6E 03`  |
+| Custom                 | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 02 70 03 F7` | `02`       | `70 03`  |
+| Keyboard A             | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 07 66 03 F7` | `07`       | `66 03`  |
+| Keyboard B             | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 08 64 03 F7` | `08`       | `64 03`  |
+| Manufacturer control   | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 04 6C 03 F7` | `04`       | `6C 03`  |
+| Touch Screen (Android) | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 05 6A 03 F7` | `05`       | `6A 03`  |
+| Video mode             | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 06 68 03 F7` | `06`       | `68 03`  |
+| Multimedia keyboard    | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 09 62 03 F7` | `09`       | `62 03`  |
+| Custom Keyboard        | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0A 60 03 F7` | `0A`       | `60 03`  |
+| Mix Key                | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0B 5E 03 F7` | `0B`       | `5E 03`  |
+| Speaker                | `F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0C 5C 03 F7` | `0C`       | `5C 03`  |
 
-```text
-Disabled  F0 00 32 09 49 00 00 00 02 5A 38 01 00 10 00 00 00 00 08 01 F7
-Enabled   F0 00 32 09 49 00 00 00 02 5A 38 01 00 10 00 00 00 01 06 F7
-```
+## Checksum
 
-### MIDI interface
+The protocol does not use a conventional CRC polynomial. The validation field is a two-byte little-endian 14-bit complement, with each output byte restricted to seven bits.
 
-```text
-TRS-MIDI          F0 00 32 09 49 00 00 00 02 01 00 00 00 10 00 00 00 01 70 03 F7
-Expression pedal  F0 00 32 09 49 00 00 00 02 01 00 00 00 10 00 00 00 00 72 03 F7
-```
-
-### Operating modes
-
-```text
-Program Change A   F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 00 74 03 F7
-Program Change B   F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 01 72 03 F7
-Advanced Custom    F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 03 6E 03 F7
-Custom Mode        F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 02 70 03 F7
-Keyboard A         F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 07 66 03 F7
-Keyboard B         F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 08 64 03 F7
-Manufacturer       F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 04 6C 03 F7
-Touch Screen       F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 05 6A 03 F7
-Video              F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 06 68 03 F7
-Multimedia         F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 09 62 03 F7
-Custom Keyboard    F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0A 60 03 F7
-Mix Key            F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0B 5E 03 F7
-Speaker            F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0C 5C 03 F7
-```
-
-### Maximum group count
+For a `09 49` configuration message, let `D` be the bytes from immediately after `F0` through the value byte immediately before the two checksum bytes. Let `S` be the unsigned sum of all bytes in `D`, `Q = D[8]` (the subcommand parameter), and `V = D[len(D)-1]` (the value). The checksum integer is:
 
 ```text
-1  F0 00 32 09 49 00 00 00 02 57 38 01 00 10 00 00 00 00 0E 01 F7
-3  F0 00 32 09 49 00 00 00 02 57 38 01 00 10 00 00 00 02 0A 01 F7
-5  F0 00 32 09 49 00 00 00 02 57 38 01 00 10 00 00 00 04 06 01 F7
-7  F0 00 32 09 49 00 00 00 02 57 38 01 00 10 00 00 00 06 02 01 F7
-8  F0 00 32 09 49 00 00 00 02 57 38 01 00 10 00 00 00 07 00 01 F7
+X = 0x28A - S - Q - V
+checksum[0] = X & 0x7F
+checksum[1] = (X >> 7) & 0x7F
 ```
 
-### Captured footswitch and bank-clear operations
+The bytes are transmitted as `checksum[0]`, `checksum[1]`, followed by `F7`. For example, the captured Program Change A message has checksum `74 03`:
 
 ```text
-A long step       F0 00 32 09 49 00 00 00 02 5D 00 00 00 10 00 00 00 03 34 02 F7
-A single step     F0 00 32 09 49 00 00 00 02 5D 00 00 00 10 00 00 00 00 3A 02 F7
-A two-bank switch F0 00 32 09 49 00 00 00 02 5D 00 00 00 10 00 00 00 01 38 02 F7
-B short/long      F0 00 32 09 49 00 00 00 02 7E 03 00 00 10 00 00 00 04 6E 03 F7
-C long step       F0 00 32 09 49 00 00 00 02 1F 07 00 00 10 00 00 00 03 2A 01 F7
+F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 00 74 03 F7
 ```
 
-The bank-add/configure captures contain large state-dependent payloads and
-cannot be represented by a reusable example without reproducing the complete
-1190-byte records; their segment structure is specified above.
+The same two-byte calculation is used by the external implementation for other message families with family-specific constants:
+
+| Message family          | Constant |
+| ----------------------- | -------: |
+| `09 49` configuration   |  `0x28A` |
+| `01 08` acknowledgement |  `0x13A` |
+| `45` discovery          |  `0x136` |
+| Other/unknown           |  `0x200` |
+
+For these families, `X = constant - sum(D)` and the result is encoded as the same two seven-bit bytes. The `09 49` form additionally subtracts its subcommand and value as shown above.

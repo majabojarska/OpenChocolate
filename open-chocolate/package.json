@@ -10,7 +10,9 @@
     "lint": "eslint . --fix",
     "lint:check": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "vue": "^3.5.41"
@@ -29,6 +31,7 @@
     "prettier": "^3.9.6",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",
+    "vitest": "^2.0.5",
     "vue-tsc": "^3.3.11"
   }
 }
