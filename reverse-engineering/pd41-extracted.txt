@@ -1,0 +1,142 @@
+                               Software Instructions
+
+Mode 1: Program Change A (PC Code)
+
+
+
+
+Content: PC codes from PC 0 to PC 127
+Switching Groups: Use buttons E and F to switch groups
+Display: The specific PC code will be shown on the display screen
+Mode 2: Program Change B (CC Code)
+
+
+
+
+Content: CC codes from CC(0,0) to CC(127,0)
+Switching Groups: Use buttons E and F to switch groups
+Display: The specific CC code will be shown on the display screen
+Mode 3: Custom Mode (CC Code)
+
+
+
+
+Content: CC codes
+MIDI Channel: Can be selected
+Footswitch: Clicking on the corresponding footswitch will send a toggle code. For example, for
+CC1, it can simultaneously send CC(1,1) and CC(1,0)
+Mode 4: Advanced Custom Mode 1 (Various MIDI Codes)
+
+
+
+
+Content: Five sub-modes with various types of MIDI codes
+MIDI Channel: Can be selected
+Switching Groups: Cannot switch banks using buttons E and F
+Five Modes:
+（1）Single Tap (Single Group of Information):Sends a corresponding MIDI code with each short
+tap. The same MIDI code is sent each time.
+（ 2 ） Single Tap (Two Groups Switching):Sends two different MIDI codes alternately with each
+short tap. For example, the first tap sends PC1, the second tap sends PC2, and then it repeats.
+
+
+（3）Press-Release (Two Groups Switching):Sends two different MIDI codes with press and
+release actions. For example, pressing sends PC1, releasing sends PC2.
+（4）Long Press:Sends a corresponding MIDI code with a long press. The same MIDI code is sent
+each time.
+
+（5）Short Tap-Long Press:Sends two different MIDI codes with a short tap and a long press. For
+example, a short tap sends PC1, and a long press sends PC2. This mode can be used to send
+toggle codes.
+
+
+
+
+Included MIDI Codes:PC codes, CC codes, NOTE ON and NOTE OFF codes, and SYSEX codes.
+Mode 5: Advanced Custom Mode 2 (Various MIDI Codes)
+
+
+
+
+Content: Only short tap and long press modes
+MIDI Channel: Can be selected.
+Switching Groups: Can switch banks using buttons E and F (up to 16 groups can be selected in the
+software).
+
+Included MIDI Codes: PC codes, CC codes, NOTE ON and NOTE OFF codes, and SYSEX codes.
+Mode 6: Manufacturer Device Control Mode.
+
+
+
+
+Content: Internal mode for controlling M-VAVE brand products such as TANK-G, LOOPER PRO, and
+LOST TEMPO.
+Mode 7: Touchscreen Mode
+
+
+
+
+Content: The four footswitches correspond to:
+A: Swipe up
+B: Swipe down
+C: Swipe left
+D: Swipe right
+Mode 8: Video Mode
+
+
+
+
+Content: The four footswitches correspond to:
+A: Rewind
+B: Fast forward
+C: Pause/Play
+D: Loop
+Note: The loop function requires the Chrome browser and an extension. Currently supported
+websites: YouTube, Bilibili.
+Mode 9: Keyboard Mode A
+
+
+
+
+Content: The four footswitches correspond to keyboard keys:
+A: Up
+B: Down
+C: Left
+D: Right
+Mode 10: Keyboard Mode B
+
+
+
+
+Content: The four footswitches correspond to keyboard keys:
+A: Page Up
+B: Page Down
+C: Space
+D: Enter
+Mode 11: Multimedia Key Mode
+
+
+
+
+Content: The four footswitches correspond to multimedia keys:
+A: Previous track
+B: Next track
+C: Volume down
+D: Volume up
+Mode 12: Custom Keyboard Mode
+
+
+
+
+Content: Each footswitch can be set to a single key or a combination of keys. Banks can be
+switched using buttons E and F, with a total of 18 (groups of) keys.
+Combination Keys:
+Combination Key 1 and Combination Key 2: Include Ctrl, Shift, Alt, and Win/Command. Note that
+Combination Key 1 and Combination Key 2 cannot use the same settings.
+Combination Key 3: Includes all other keys (letters A-Z, arrow keys, Page Up/Page Down, F1-F9).
+Example: To set a combination key Ctrl+Shift+Z:
+Set Ctrl in Combination Key 1
+Set Shift in Combination Key 2
+Set Z in Combination Key 3
+This achieves the desired combination effect.
+
