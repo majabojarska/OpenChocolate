@@ -101,6 +101,7 @@ exports[`App snapshot > renders a connected device with a full configuration 1`]
           <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack" checked=""> TRS-MIDI </label></div>
         </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch" checked=""></label>
       </div>
+      <!--v-if-->
     </section>
     <section class="card monitor-card">
       <div class="card-head">
@@ -112,6 +113,15 @@ exports[`App snapshot > renders a connected device with a full configuration 1`]
       <div class="monitor-list mono">
         <p class="muted empty">No MIDI traffic yet.</p>
       </div>
+    </section>
+    <section class="card tips-card">
+      <div class="card-head">
+        <h2>Tips</h2>
+      </div>
+      <ul class="tips-list">
+        <li>Enable/disable BLE: hold and press B+C.</li>
+        <li>Factory reset: press and hold A+D until "000" is blinking.</li>
+      </ul>
     </section>
   </main>
 </div>"
@@ -150,6 +160,7 @@ exports[`App snapshot > renders a detected device (auto-selected) with a Connect
         <div class="row gap"><button class="btn btn-small" disabled=""> Re-read </button><button class="btn btn-small" disabled=""> Export </button><button class="btn btn-small" disabled="">Import</button><button class="btn btn-small btn-primary" disabled=""> Apply all to device </button><input type="file" accept="application/json,.json" hidden=""></div>
       </div>
       <p class="muted empty"> Connect a device to read and change its configuration. </p>
+      <!--v-if-->
     </section>
     <section class="card monitor-card">
       <div class="card-head">
@@ -161,6 +172,15 @@ exports[`App snapshot > renders a detected device (auto-selected) with a Connect
       <div class="monitor-list mono">
         <p class="muted empty">No MIDI traffic yet.</p>
       </div>
+    </section>
+    <section class="card tips-card">
+      <div class="card-head">
+        <h2>Tips</h2>
+      </div>
+      <ul class="tips-list">
+        <li>Enable/disable BLE: hold and press B+C.</li>
+        <li>Factory reset: press and hold A+D until "000" is blinking.</li>
+      </ul>
     </section>
   </main>
 </div>"
@@ -195,6 +215,7 @@ exports[`App snapshot > renders the error banner when the scan fails 1`] = `
         <div class="row gap"><button class="btn btn-small" disabled=""> Re-read </button><button class="btn btn-small" disabled=""> Export </button><button class="btn btn-small" disabled="">Import</button><button class="btn btn-small btn-primary" disabled=""> Apply all to device </button><input type="file" accept="application/json,.json" hidden=""></div>
       </div>
       <p class="muted empty"> Connect a device to read and change its configuration. </p>
+      <!--v-if-->
     </section>
     <section class="card monitor-card">
       <div class="card-head">
@@ -206,6 +227,15 @@ exports[`App snapshot > renders the error banner when the scan fails 1`] = `
       <div class="monitor-list mono">
         <p class="muted empty">No MIDI traffic yet.</p>
       </div>
+    </section>
+    <section class="card tips-card">
+      <div class="card-head">
+        <h2>Tips</h2>
+      </div>
+      <ul class="tips-list">
+        <li>Enable/disable BLE: hold and press B+C.</li>
+        <li>Factory reset: press and hold A+D until "000" is blinking.</li>
+      </ul>
     </section>
   </main>
 </div>"
@@ -240,6 +270,7 @@ exports[`App snapshot > renders the shell with no devices after scan 1`] = `
         <div class="row gap"><button class="btn btn-small" disabled=""> Re-read </button><button class="btn btn-small" disabled=""> Export </button><button class="btn btn-small" disabled="">Import</button><button class="btn btn-small btn-primary" disabled=""> Apply all to device </button><input type="file" accept="application/json,.json" hidden=""></div>
       </div>
       <p class="muted empty"> Connect a device to read and change its configuration. </p>
+      <!--v-if-->
     </section>
     <section class="card monitor-card">
       <div class="card-head">
@@ -251,6 +282,15 @@ exports[`App snapshot > renders the shell with no devices after scan 1`] = `
       <div class="monitor-list mono">
         <p class="muted empty">No MIDI traffic yet.</p>
       </div>
+    </section>
+    <section class="card tips-card">
+      <div class="card-head">
+        <h2>Tips</h2>
+      </div>
+      <ul class="tips-list">
+        <li>Enable/disable BLE: hold and press B+C.</li>
+        <li>Factory reset: press and hold A+D until "000" is blinking.</li>
+      </ul>
     </section>
   </main>
 </div>"

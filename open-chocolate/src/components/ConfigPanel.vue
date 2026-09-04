@@ -13,11 +13,15 @@ import {
   MixKeyView,
 } from './config';
 
-const props = defineProps<{
-  config: DeviceConfig;
-  hasDevice: boolean;
-  busy: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    config: DeviceConfig;
+    hasDevice: boolean;
+    busy: boolean;
+    busyKind?: 'write' | 'read';
+  }>(),
+  { busyKind: 'write' }
+);
 
 const emit = defineEmits<{
   mode: [mode: number];
@@ -48,6 +52,11 @@ const meta = computed(() =>
 );
 const view = computed(() => meta.value?.view ?? 'none');
 
+/** Overlay copy: reads are the only non-write operation that sets busy. */
+const busyLabel = computed(() =>
+  props.busyKind === 'read' ? 'Reading from device…' : 'Writing to device…'
+);
+
 const groupCounts = [1, 2, 3, 4, 5, 6, 7, 8];
 const channelNumbers = Array.from({ length: 16 }, (_, i) => i + 1);
 
@@ -76,7 +85,7 @@ function onImportFile(ev: Event) {
 </script>
 
 <template>
-  <section class="card">
+  <section class="card" :aria-busy="busy ? 'true' : undefined">
     <div class="card-head">
       <h2>Configuration</h2>
       <div class="row gap">
@@ -226,5 +235,14 @@ function onImportFile(ev: Event) {
         </label>
       </div>
     </template>
+
+    <div v-if="busy" class="busy-overlay">
+      <div class="busy-pill" role="status" aria-live="polite">
+        <span class="busy-bars" aria-hidden="true">
+          <i v-for="n in 5" :key="n" :style="{ animationDelay: n * 0.12 + 's' }"></i>
+        </span>
+        <span class="busy-label">{{ busyLabel }}</span>
+      </div>
+    </div>
   </section>
 </template>

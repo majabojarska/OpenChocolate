@@ -116,4 +116,13 @@ describe('ConfigPanel snapshot', () => {
     });
     expect(wrapper.html()).toMatchSnapshot();
   });
+
+  it('labels the overlay as reading while re-reading the device', () => {
+    const config = emptyConfig();
+    config.mode = 0x02;
+    const wrapper = mount(ConfigPanel, {
+      props: { config, hasDevice: true, busy: true, busyKind: 'read' },
+    });
+    expect(wrapper.html()).toMatchSnapshot();
+  });
 });

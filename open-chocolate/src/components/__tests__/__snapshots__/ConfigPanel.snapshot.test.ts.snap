@@ -1,7 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`ConfigPanel snapshot > disables all controls while busy 1`] = `
-"<section class="card">
+"<section class="card" aria-busy="true">
   <div class="card-head">
     <h2>Configuration</h2>
     <div class="row gap"><button class="btn btn-small" disabled=""> Re-read </button><button class="btn btn-small"> Export </button><button class="btn btn-small">Import</button><button class="btn btn-small btn-primary" disabled=""> Apply all to device </button><input type="file" accept="application/json,.json" hidden=""></div>
@@ -79,6 +79,95 @@ exports[`ConfigPanel snapshot > disables all controls while busy 1`] = `
     <div class="field"><span>TRS jack</span>
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack" disabled=""> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack" disabled=""> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch" disabled=""></label>
+  </div>
+  <div class="busy-overlay">
+    <div class="busy-pill" role="status" aria-live="polite"><span class="busy-bars" aria-hidden="true"><i style="animation-delay: 0.12s;"></i><i style="animation-delay: 0.24s;"></i><i style="animation-delay: 0.36s;"></i><i style="animation-delay: 0.48s;"></i><i style="animation-delay: 0.6s;"></i></span><span class="busy-label">Writing to device…</span></div>
+  </div>
+</section>"
+`;
+
+exports[`ConfigPanel snapshot > labels the overlay as reading while re-reading the device 1`] = `
+"<section class="card" aria-busy="true">
+  <div class="card-head">
+    <h2>Configuration</h2>
+    <div class="row gap"><button class="btn btn-small" disabled=""> Re-read </button><button class="btn btn-small"> Export </button><button class="btn btn-small">Import</button><button class="btn btn-small btn-primary" disabled=""> Apply all to device </button><input type="file" accept="application/json,.json" hidden=""></div>
+  </div><label class="field"><span>Operating mode</span><select class="control" disabled="" value="2">
+      <option value="0">MIDI Program Change (PC)</option>
+      <option value="1">MIDI Control Change (CC)</option>
+      <option value="2">Custom (WIP)</option>
+      <option value="3">Advanced Custom (WIP)</option>
+      <option value="4">Manufacturer Control (WIP)</option>
+      <option value="5">Touch Screen (Android) (WIP)</option>
+      <option value="6">Video Control</option>
+      <option value="7">Keyboard A</option>
+      <option value="8">Keyboard B</option>
+      <option value="9">Music Player Control</option>
+      <option value="10">Custom Keyboard (WIP)</option>
+      <option value="11">Mix Key (WIP)</option>
+      <option value="12">Speaker (WIP)</option>
+    </select></label><!-- ---- mode-specific sub-view ---- -->
+  <div class="mode-view">
+    <p class="mode-info">Each footswitch sends its own CC number. Toggling sends CC(n,1) on press and CC(n,0) on release.</p>
+    <!--v-if-->
+    <!-- Program Change A / B -->
+    <!-- Custom -->
+    <div class="grid grid-4"><label class="field"><span>Footswitch A</span>
+        <div class="row gap"><input class="control" type="number" min="0" max="127" placeholder="CC" disabled="" value=""><select class="control" disabled="" value="0">
+            <option value="0">Momentary</option>
+            <option value="1">Latching</option>
+          </select></div>
+      </label><label class="field"><span>Footswitch B</span>
+        <div class="row gap"><input class="control" type="number" min="0" max="127" placeholder="CC" disabled="" value=""><select class="control" disabled="" value="0">
+            <option value="0">Momentary</option>
+            <option value="1">Latching</option>
+          </select></div>
+      </label><label class="field"><span>Footswitch C</span>
+        <div class="row gap"><input class="control" type="number" min="0" max="127" placeholder="CC" disabled="" value=""><select class="control" disabled="" value="0">
+            <option value="0">Momentary</option>
+            <option value="1">Latching</option>
+          </select></div>
+      </label><label class="field"><span>Footswitch D</span>
+        <div class="row gap"><input class="control" type="number" min="0" max="127" placeholder="CC" disabled="" value=""><select class="control" disabled="" value="0">
+            <option value="0">Momentary</option>
+            <option value="1">Latching</option>
+          </select></div>
+      </label></div>
+    <p class="muted small note"> Press sends CC(n,1), release sends CC(n,0). The device stores a fifth CC slot with no documented footswitch; it is left untouched. </p>
+  </div><!-- ---- device-wide settings ---- -->
+  <h3>Device-wide settings</h3>
+  <div class="grid"><label class="field"><span>MIDI channel</span><select class="control" disabled="" value="1">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+        <option value="9">9</option>
+        <option value="10">10</option>
+        <option value="11">11</option>
+        <option value="12">12</option>
+        <option value="13">13</option>
+        <option value="14">14</option>
+        <option value="15">15</option>
+        <option value="16">16</option>
+      </select></label><label class="field"><span>Max groups</span><select class="control" disabled="" value="1">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+      </select></label>
+    <div class="field"><span>TRS jack</span>
+      <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack" disabled=""> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack" disabled=""> TRS-MIDI </label></div>
+    </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch" disabled=""></label>
+  </div>
+  <div class="busy-overlay">
+    <div class="busy-pill" role="status" aria-live="polite"><span class="busy-bars" aria-hidden="true"><i style="animation-delay: 0.12s;"></i><i style="animation-delay: 0.24s;"></i><i style="animation-delay: 0.36s;"></i><i style="animation-delay: 0.48s;"></i><i style="animation-delay: 0.6s;"></i></span><span class="busy-label">Reading from device…</span></div>
   </div>
 </section>"
 `;
@@ -158,6 +247,7 @@ exports[`ConfigPanel snapshot > renders Advanced Custom mode with banks 1`] = `
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack" checked=""> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch" checked=""></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -250,6 +340,7 @@ exports[`ConfigPanel snapshot > renders CC mode (B) and uses maxBanksPcB 1`] = `
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -312,6 +403,7 @@ exports[`ConfigPanel snapshot > renders Custom Keyboard placeholder 1`] = `
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -395,6 +487,7 @@ exports[`ConfigPanel snapshot > renders Custom mode with CC/latch values 1`] = `
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -462,6 +555,7 @@ exports[`ConfigPanel snapshot > renders Keyboard A mode predefined actions 1`] =
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -529,6 +623,7 @@ exports[`ConfigPanel snapshot > renders Keyboard B mode predefined actions 1`] =
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -590,6 +685,7 @@ exports[`ConfigPanel snapshot > renders Manufacturer Control mode (no sub-view) 
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -652,6 +748,7 @@ exports[`ConfigPanel snapshot > renders Mix Key placeholder 1`] = `
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -719,6 +816,7 @@ exports[`ConfigPanel snapshot > renders Music Player mode predefined actions 1`]
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -811,6 +909,7 @@ exports[`ConfigPanel snapshot > renders PC mode (A) with device-wide settings 1`
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack" checked=""> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -872,6 +971,7 @@ exports[`ConfigPanel snapshot > renders Speaker mode (no sub-view) 1`] = `
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -939,6 +1039,7 @@ exports[`ConfigPanel snapshot > renders Touch Screen mode predefined actions 1`]
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -1006,6 +1107,7 @@ exports[`ConfigPanel snapshot > renders Video Control mode predefined actions 1`
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -1063,6 +1165,7 @@ exports[`ConfigPanel snapshot > renders a null mode as an empty config with cont
       <div class="row gap radio-row"><label class="row small"><input type="radio" name="trs-jack"> Expression pedal </label><label class="row small"><input type="radio" name="trs-jack"> TRS-MIDI </label></div>
     </div><label class="field row"><span>Reverse polarity</span><input type="checkbox" class="switch"></label>
   </div>
+  <!--v-if-->
 </section>"
 `;
 
@@ -1073,5 +1176,6 @@ exports[`ConfigPanel snapshot > shows the placeholder when no device is connecte
     <div class="row gap"><button class="btn btn-small" disabled=""> Re-read </button><button class="btn btn-small" disabled=""> Export </button><button class="btn btn-small" disabled="">Import</button><button class="btn btn-small btn-primary" disabled=""> Apply all to device </button><input type="file" accept="application/json,.json" hidden=""></div>
   </div>
   <p class="muted empty"> Connect a device to read and change its configuration. </p>
+  <!--v-if-->
 </section>"
 `;

@@ -18,6 +18,9 @@ const connectedKey = ref<string | null>(null);
 const scanned = ref(false);
 const scanning = ref(false);
 const busy = ref(false);
+// What the current device operation is: re-reading the config is a read,
+// everything else writes changes to the device.
+const busyKind = ref<'write' | 'read'>('write');
 const error = ref<string | null>(null);
 const selectedKey = ref<string | null>(null);
 
@@ -92,7 +95,8 @@ async function connect(key: string) {
   }
 }
 
-async function withBusy(fn: () => Promise<void>) {
+async function withBusy(fn: () => Promise<void>, kind: 'write' | 'read' = 'write') {
+  busyKind.value = kind;
   busy.value = true;
   error.value = null;
   try {
@@ -196,6 +200,7 @@ function importConfig(file: File) {
         :config="config"
         :has-device="hasDevice"
         :busy="busy"
+        :busy-kind="busyKind"
         @mode="onModeChange"
         @interface="onInterfaceChange"
         @polarity="onPolarityChange"
@@ -205,7 +210,7 @@ function importConfig(file: File) {
         @footswitch="({ page, index, step }) => onFootswitchChange(page, index, step)"
         @footswitch-bank="onFootswitchBankChange"
         @custom-cc="({ bank, cc, latch }) => onCustomCcChange(bank, cc, latch)"
-        @reread="withBusy(() => comms.reread())"
+        @reread="withBusy(() => comms.reread(), 'read')"
         @export="exportConfig"
         @import="importConfig"
         @apply-all="withBusy(() => comms.applyAll())"
