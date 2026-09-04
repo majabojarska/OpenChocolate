@@ -436,6 +436,11 @@ export class CommsService {
    * The official app then re-writes six live settings. Those writes mirror
    * the settings of the captured session; they are intentionally not sent
    * automatically - the UI sends writes when the user changes settings.
+   *
+   * The reads MUST stay strictly sequential: the device answers one
+   * outstanding read request at a time (pipelining requests makes it drop
+   * everything beyond the first 1-2, as seen in open-device.pcapng where the
+   * official app waits for each full response before sending the next read).
    */
   private async runInitSequence(
     outputKey: string,
