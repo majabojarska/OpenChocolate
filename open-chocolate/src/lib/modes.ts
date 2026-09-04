@@ -82,7 +82,7 @@ export const MODE_META: Record<number, ModeMeta> = {
   },
   0x06: {
     view: 'none',
-    info: 'The footswitches control video playback (YouTube, Bilibili - Chrome browser extension required):',
+    info: 'The footswitches control video playback (e.g. YouTube):',
     actions: ['Rewind', 'Fast forward', 'Pause/Play', 'Loop'],
   },
   0x07: {
