@@ -79,7 +79,8 @@ function addSlot() {
   if (!codes) return;
   const slot = codes.findIndex((c) => !c.enabled);
   if (slot === -1) return; // all 16 slots in use
-  editing.value = { slot, draft: defaultMidiCode() };
+  // Adding a message implies it should fire: the starter draft is enabled.
+  editing.value = { slot, draft: { ...defaultMidiCode(), enabled: true } };
 }
 
 function editSlot(slot: number) {
