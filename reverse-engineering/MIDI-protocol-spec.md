@@ -1,13 +1,42 @@
 # M-Vave Chocolate Plus MIDI protocol
 
-This document describes only behavior observed in the supplied USB captures.
+This document describes the SysEx protocol of the M-Vave Chocolate Plus
+("FC2") as observed in the supplied USB captures
+(`usb-capture/*.pcapng`) and cross-checked against the official apps
+(decompiled `CubeSuite.dmg` macOS binary and `CubeSuite.apk`).
+See `protocol-addendum.md` for how these findings were established.
 
 ## Transport
 
 The device is USB MIDI over bulk transfer, using endpoint `0x04 OUT` for host
 commands. SysEx messages begin with `F0 00 32` and end with `F7`. USB MIDI
 packets carry three MIDI bytes; continuation packets use CIN `0x04` and the
-final packet uses CIN `0x07`.
+final packet uses CIN `0x05`, `0x06` or `0x07`.
+
+## Configuration blob
+
+Many commands address a byte offset inside a **23646-byte configuration
+blob** held by the device. The official app reads the whole blob
+(`splitReadData(ext=4, addr=0, len=23646)`), edits it in RAM, and pushes
+single-byte updates. Known layout (from the app's `FC2Struct` and captured
+writes):
+
+| Blob address | Field |
+| -----------: | ----- |
+| 0 | Operating mode (0..12) |
+| 1 | TRS jack function (0 = expression pedal, 1 = TRS-MIDI) |
+| 2 | MIDI channel (0-based; UI displays +1) |
+| 3..12 | Custom mode, 5 banks: latch at `3+2b`, CC number at `4+2b` |
+| 13..92 | Custom mode tap codes: 16 x 5-byte MIDI codes |
+| 93..3428 | Advanced Custom: 2 pages x 4 switches x 417 bytes; first byte of each block is the switch step mode |
+| ... | Custom keyboard keys, Mix Key entries |
+| 23637 | Max banks, Program Change A mode (0x1f = 32 banks) |
+| 23638 | Max banks, Program Change B mode |
+| 23639 | Max group count (value = count - 1) |
+| 23640 | Advanced Custom page (0/1) |
+| 23641 | Custom Keyboard page |
+| 23642 | Polarity reversal (0/1) |
+| 23643..23645 | Bank-MIDI, PC display, Mix Key page |
 
 ## Discovery
 
@@ -17,28 +46,40 @@ Request:
 F0 00 32 45 00 00 00 40 7F F7
 ```
 
-The supplied discovery capture also contains a 41-byte response beginning
-`F0 00 32 45 58 01 00 00 23`; its remaining fields are not yet identified.
+The device answers with a 41-byte response beginning
+`F0 00 32 45 58 01 00 00 23`, followed by 17 device-specific bytes (serial
+or id) and a trailing checksum byte. Discovery works on every MIDI output:
+send the request to all outputs and match the response signature.
 
 ## Open/handshake
 
-The captured initialization sequence is:
+The captured initialization sequence in `open-device.pcapng` is:
 
-1. Send the discovery request above.
-2. Receive the 41-byte `45 58` discovery response.
-3. Send twenty-four `0D 41` read requests. Each request is 20 bytes and has the
-   form `F0 00 32 0D 41 00 00 00 02 ss ss ss ss 10 7E 00 rr rr F7`.
-   The selector bytes advance through the device configuration records.
-4. Receive a 1173-byte `0D 49` response after each read request. The response
-   echoes the selector and contains the corresponding configuration payload.
-5. Send one final `0D 41` request with selector `27 35 01 00` and marker
-   `70 36`; the device answers with a 521-byte `0D 79` response.
-6. Send six 21-byte `09 49` configuration writes (mode/custom settings), each
-   followed by the 12-byte `01 08` acknowledgement.
+1. Send the discovery request above; receive the 41-byte `45 58` response.
+2. Send twenty-four `0D 41` read requests. Each is 20 bytes:
 
-Thus opening and loading configuration is a request/response exchange; it is
-not a single fixed 16- or 20-byte “open” message. The exact request selectors
-observed in order are:
+   ```text
+   F0 00 32 0D 41 00 00 00 02 ss ss ss ss 10 7E 00 00 rr rr F7
+   ```
+
+   The address bytes `ss` advance in strides of 1009:
+   `00 00 00 00`, `71 07 00 00`, `62 0F 00 00`, ... `27 35 01 00`
+   (i.e. address `i * 1009` for `i` = 0..23, encoded 7-bit LE).
+   `rr` is a rolling 7-bit pair (lo, hi): 7, 19, 30, ... +11 per request.
+3. Receive a 1173-byte `0D 49` response per read. Layout:
+
+   ```text
+   F0 00 32 0D 49 3F 00 00 02 ss ss ss ss 10 7E 00 00 [1153-byte payload] [ck:2] F7
+   ```
+
+   The payload carries the blob content for the requested region.
+4. The 24th request uses marker `70 36` instead of `10 7E` and `rr` = 66;
+   the device answers with a 521-byte `0D 79` record (498-byte payload).
+5. Send six 21-byte `09 49` configuration writes, each acknowledged with a
+   12-byte `01 08` response (here: the Custom-mode CC numbers of the
+   captured session and the Program-Change-B max-bank count).
+
+The read requests observed in `open-device.pcapng`, in order:
 
 ```text
 00 00 00 00, 71 07 00 00, 62 0F 00 00, 53 17 00 00,
@@ -66,52 +107,56 @@ F0 MM MM CC SS PP PP PP PP VV VV VV VV TT PP PP PP PP DD CC CC F7
 |      3 |    1 | `09`          | Configuration command class       |
 |      4 |    1 | `49`          | Configuration-write subcommand    |
 |    5-8 |    4 | `00 00 00 02` | Fixed message parameter           |
-|   9-12 |    4 | selector      | Selects the setting being changed |
+|   9-12 |    4 | address       | Blob address, 7-bit little-endian |
 |     13 |    1 | `10`          | Fixed data marker                 |
 |  14-16 |    3 | `00 00 00`    | Reserved                          |
 |     17 |    1 | value         | Setting value                     |
 |  18-19 |    2 | checksum      | Two 7-bit validation bytes        |
 |     20 |    1 | `F7`          | SysEx end                         |
 
-All payload bytes must remain MIDI-safe (`0x00`-`0x7F`). The selector and value
-are interpreted by the selected configuration family. For example, operating
-mode writes use selector `00 00 00 00`, while groups and polarity use their
-own selectors documented in their own sections.
+All payload bytes must remain MIDI-safe (`0x00`-`0x7F`). The address selects
+the target byte inside the configuration blob (see the blob layout above);
+single-value settings such as the operating mode live at their own address.
+For example, operating mode writes use address `00 00 00 00`.
 
-```text
-F0 00 32 01 08 00 00 00 00 7F 01 F7
-```
+## Known configuration addresses
 
-## Known configuration selectors
+The address occupies offsets 9-12 of a `09 49` write, encoded as
+`[addr & 7f, (addr >> 7) & 7f, (addr >> 14) & 7f, 0]`. Confirmed addresses:
 
-The selector occupies offsets 9-12 of a `09 49` configuration write. The
-following selectors are confirmed by the supplied captures or the referenced
-external implementation:
+| Address (bytes)              | Blob addr | Setting                              | Value at offset 17 |
+| ---------------------------- | --------: | ------------------------------------ | ------------------ |
+| `00 00 00 00`                | 0         | Operating mode                       | Mode identifier    |
+| `01 00 00 00`                | 1         | MIDI interface type                  | `00` expression pedal, `01` TRS-MIDI |
+| `02 00 00 00`                | 2         | MIDI channel                         | 0-based channel    |
+| `03 00 00 00`                | 3         | Custom bank 1 latch                  | `00` momentary, `01` latching |
+| `04 00 00 00`                | 4         | Custom bank 1 CC number              | CC number          |
+| `05`-`0C` (odd/even pairs)   | 5-12      | Custom banks 2-5 latch / CC          | as above           |
+| `5D 00 00 00`                | 93        | Footswitch A step mode               | Mode identifier    |
+| `7E 03 00 00`                | 510       | Footswitch B step mode               | Mode identifier    |
+| `1F 07 00 00`                | 927       | Footswitch C step mode               | Mode identifier    |
+| `40 0A 00 00`                | 1344      | Footswitch D step mode               | Mode identifier (inferred, see below) |
+| `55 38 01 00`                | 23637     | Max banks, Program Change A          | `count - 1`        |
+| `56 38 01 00`                | 23638     | Max banks, Program Change B          | `count - 1`        |
+| `57 38 01 00`                | 23639     | Max group count                      | `group count - 1`  |
+| `5A 38 01 00`                | 23642     | Polarity reversal                    | `00` disabled, `01` enabled |
 
-| Selector                    | Configuration family                  | Value at offset 17                   |
-| --------------------------- | ------------------------------------- | ------------------------------------ |
-| `00 00 00 00`               | Operating mode                        | Mode identifier                      |
-| `5A 38 01 00`               | Polarity reversal                     | `00` disabled, `01` enabled          |
-| `57 38 01 00`               | Maximum group count                   | `group count - 1`                    |
-| `01 00 00 00`               | MIDI interface type                   | `00` expression pedal, `01` TRS-MIDI |
-| `5D 00 00 00`               | Footswitch A mode                     | Mode identifier                      |
-| `7E 03 00 00`               | Footswitch B mode                     | Mode identifier                      |
-| `1F 07 00 00`               | Footswitch C mode                     | Mode identifier                      |
-| UNKNOWN                     | Footswitch D mode                     | Mode identifier                      |
-| `02 00 00 00`               | Custom CC value, bank 1               | CC number                            |
-| `03 00 00 00`               | Custom CC latch, bank 1               | `00` momentary, `01` latching        |
-| `30 0E 00 00`–`3E 0E 00 00` | Advanced Custom per-switch attributes | Attribute value                      |
-
-For Custom CC, the first selector byte advances by `02` per bank (`02`, `04`,
-`06`, `08`, `0A` for CC and `03`, `05`, `07`, `09`, `0B` for latch). Advanced
-Custom selectors advance by `04` per switch; the second selector byte `0E`
-requests an immediate live write.
+Footswitch D follows the same 417-byte block stride as A-C (93 + 3 x 417 =
+1344) and matches the decompiled struct layout, but the corresponding USB
+capture is empty, so treat it as inferred.
 
 ## Footswitch selection
 
-Footswitch mode commands use the same 21-byte `09 49` envelope with selectors
-including `5D 00 00 00`, `7E 03 00 00`, and `1F 07 00 00`. The value and final
-validation bytes vary by operation.
+Footswitch mode commands use the same 21-byte `09 49` envelope with
+addresses 93 (A), 510 (B), 927 (C) and 1344 (D). Captured values:
+
+| Value | Step mode                          |
+| ----: | ---------------------------------- |
+| 0     | Single step (single bank)          |
+| 1     | Single step (switch between two banks) |
+| 2     | Press and release                  |
+| 3     | Long step                          |
+| 4     | Step short or step long            |
 
 ## Bank transfers
 
@@ -125,10 +170,9 @@ Bank edits are segmented transfers, not one monolithic message:
 
 No fixed four-footswitch offset mapping has been established from the captures.
 
-## Bit-perfect examples: selector `00 00 00 00`
+## Bit-perfect examples: address `00 00 00 00`
 
-Only captured commands with selector bytes `00 00 00 00` are listed below.
-Groups and polarity are documented in their respective sections above.
+Only captured commands with address `00 00 00 00` are listed below.
 Spaces are formatting only.
 
 | Mode                   | Request                                                          | Mode Value | Checksum |
@@ -149,29 +193,47 @@ Spaces are formatting only.
 
 ## Checksum
 
-The protocol does not use a conventional CRC polynomial. The validation field is a two-byte little-endian 14-bit complement, with each output byte restricted to seven bits.
+The protocol does not use a conventional CRC polynomial. The validation field
+is a two-byte little-endian 14-bit complement, with each output byte
+restricted to seven bits.
 
-For a `09 49` configuration message, let `D` be the bytes from immediately after `F0` through the value byte immediately before the two checksum bytes. Let `S` be the unsigned sum of all bytes in `D`, `Q = D[8]` (the subcommand parameter), and `V = D[len(D)-1]` (the value). The checksum integer is:
+For a `09 49` configuration message, let `D` be the bytes from immediately
+after `F0` through the value byte immediately before the two checksum bytes.
+Let `S` be the unsigned sum of all bytes in `D`, `Q = D[8]` (the first
+address byte), and `V = D[len(D)-1]` (the value). The checksum integer is:
 
 ```text
-X = 0x28A - S - Q - V
+X = K - S - Q - V
 checksum[0] = X & 0x7F
 checksum[1] = (X >> 7) & 0x7F
 ```
 
-The bytes are transmitted as `checksum[0]`, `checksum[1]`, followed by `F7`. For example, the captured Program Change A message has checksum `74 03`:
+`K` is constant per address family (determined from 50+ captured writes,
+all of which reproduce bit-perfect):
+
+| Address family                                        | K      |
+| ----------------------------------------------------- | ------ |
+| 0, 1, 4-12, 93 (mode, channel, TRS, custom CC, fs A)  | `0x28A`|
+| 510 (footswitch B)                                    | `0x38B`|
+| 927 (footswitch C)                                    | `0x18B`|
+| 23637-23642 (max banks, groups, polarity)             | `0x20B`|
+
+The rule that produces these constants is not yet understood; the constants
+were derived empirically. Footswitch D (1344) has no capture; the reference
+implementation groups it with footswitch B (`0x38B`).
+
+For example, the captured Program Change A message has checksum `74 03`:
 
 ```text
 F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 00 74 03 F7
 ```
 
-The same two-byte calculation is used by the external implementation for other message families with family-specific constants:
+Other message families use the same two-byte calculation with
+family-specific constants and `X = K - S` (no `Q`/`V` subtraction):
 
 | Message family          | Constant |
 | ----------------------- | -------: |
-| `09 49` configuration   |  `0x28A` |
+| `09 49` configuration   |  `0x28A` (see address families above) |
 | `01 08` acknowledgement |  `0x13A` |
-| `45` discovery          |  `0x136` |
+| `45` discovery          |  `0x136` (single checksum byte `7F`) |
 | Other/unknown           |  `0x200` |
-
-For these families, `X = constant - sum(D)` and the result is encoded as the same two seven-bit bytes. The `09 49` form additionally subtracts its subcommand and value as shown above.
