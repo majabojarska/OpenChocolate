@@ -4,7 +4,7 @@ import {
   buildDiscoveryRequest,
   buildOpenDeviceRequest,
   parseConfigurationResponse,
-  parseDiscoveryRequest,
+  parseDiscoveryResponse,
 } from '../sysex';
 
 const discoveryExpected = new Uint8Array([0xf0, 0, 0x32, 0x45, 0, 0, 0, 0x40, 0x7f, 0xf7]);
@@ -15,7 +15,7 @@ const openExpected = new Uint8Array([
 describe('sysex codec', () => {
   it('builds and parses discovery', () => {
     expect(buildDiscoveryRequest()).toEqual(discoveryExpected);
-    expect(parseDiscoveryRequest(discoveryExpected)).toEqual({
+    expect(parseDiscoveryResponse(discoveryExpected)).toEqual({
       kind: 'discovery-request',
       target: 0x7f,
     });

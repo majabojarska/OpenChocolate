@@ -70,6 +70,8 @@ export default [
     },
     rules: {
       // 'no-unused-vars': 'off',
+      'no-unused-vars': 'off',
+      'no-undef': 'off',
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^[A-Z_]+$' },
@@ -108,6 +110,8 @@ export default [
     },
     rules: {
       'vue/multi-word-component-names': 'off',
+      'no-unused-vars': 'off',
+      'no-undef': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-non-null-assertion': 'off',

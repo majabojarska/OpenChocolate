@@ -65,11 +65,11 @@ const directionLabel = (direction: 'IN' | 'OUT') => (direction === 'IN' ? 'RX' :
   color: var(--text-secondary, #666);
 }
 .monitor-table tr.incoming {
-  background-color: var(--incoming-bg, #1e90ff);
+  background-color: var(--outgoing-bg, #32cd32);
   color: white;
 }
 .monitor-table tr.outgoing {
-  background-color: var(--outgoing-bg, #32cd32);
+  background-color: var(--incoming-bg, #1e90ff);
   color: white;
 }
 .monitor-table code {

@@ -18,7 +18,7 @@ export function buildDiscoveryRequest(target = 0x7f): Uint8Array {
   return new Uint8Array([0xf0, ...HEADER, 0x45, 0, 0, 0, 0x40, target, 0xf7]);
 }
 
-export function parseDiscoveryRequest(data: Uint8Array): DiscoveryRequest | null {
+export function parseDiscoveryResponse(data: Uint8Array): DiscoveryRequest | null {
   if (
     data.length !== 10 ||
     data[0] !== 0xf0 ||
@@ -83,5 +83,5 @@ export function parseConfigurationResponse(data: Uint8Array): ConfigurationRespo
 }
 
 export function parseSysEx(data: Uint8Array): DiscoveryRequest | ConfigurationResponse | null {
-  return parseDiscoveryRequest(data) ?? parseConfigurationResponse(data);
+  return parseDiscoveryResponse(data) ?? parseConfigurationResponse(data);
 }
