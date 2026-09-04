@@ -77,6 +77,74 @@ export function footswitchAddr(page: number, index: number): number {
 /** Number of custom-mode CC/latch banks. */
 export const CUSTOM_CC_BANKS = 5;
 
+/**
+ * Advanced Custom region (device mode 3): two usr pages x four footswitches,
+ * each switch a 417-byte block whose first byte is the step mode, followed by
+ * midiCodeA (16 x 5), midiCodeB (16 x 5), sysExA (128) and sysExB (128)
+ * bytes (FC2Struct order). Only bytes of the two usr pages are edited here.
+ */
+export const ADV_CUSTOM_START = 93;
+export const ADV_CUSTOM_BLOCK = 417;
+/** Bytes per usr page (4 switches). */
+export const ADV_CUSTOM_PAGE_STRIDE = 4 * ADV_CUSTOM_BLOCK;
+export const ADV_CUSTOM_SWITCHES = 4;
+export const MIDI_CODE_SLOTS = 16;
+
+export interface MidiCode {
+  /** Whether the footswitch sends this message. */
+  enabled: boolean;
+  /** MIDI channel, 0-based (UI shows +1). */
+  channel: number;
+  /** 0 = PC, 1 = CC, 2 = Note ON, 3 = Note OFF, 4 = SysEx. */
+  type: number;
+  data1: number;
+  data2: number;
+}
+
+/** Blob address of the first byte of one Advanced Custom switch block. */
+export function advCustomBlockAddr(page: number, sw: number): number {
+  return ADV_CUSTOM_START + page * ADV_CUSTOM_PAGE_STRIDE + sw * ADV_CUSTOM_BLOCK;
+}
+
+/**
+ * Blob address of one byte of a midi-code entry. bank 0 = A, 1 = B;
+ * field 0..4 = enable/channel/type/data1/data2.
+ */
+export function midiCodeAddr(
+  page: number,
+  sw: number,
+  bank: 0 | 1,
+  slot: number,
+  field: number
+): number {
+  const base = advCustomBlockAddr(page, sw) + 1 + bank * (MIDI_CODE_SLOTS * 5) + slot * 5;
+  return base + field;
+}
+
+/** Decode 5-byte midi-code entries starting at blob offset `off`. */
+export function decodeMidiCodes(src: Uint8Array | readonly number[], off: number): MidiCode[] {
+  const out: MidiCode[] = [];
+  for (let s = 0; s < MIDI_CODE_SLOTS; s++) {
+    out.push({
+      enabled: src[off + s * 5] > 0,
+      channel: src[off + s * 5 + 1],
+      type: src[off + s * 5 + 2],
+      data1: src[off + s * 5 + 3],
+      data2: src[off + s * 5 + 4],
+    });
+  }
+  return out;
+}
+
+/** MidI message type labels, in blob value order (see MidiCode.type). */
+export const MIDI_CODE_TYPES = [
+  { value: 0, label: 'PC' },
+  { value: 1, label: 'CC' },
+  { value: 2, label: 'Note ON' },
+  { value: 3, label: 'Note OFF' },
+  { value: 4, label: 'SysEx' },
+] as const;
+
 /** 14-bit id -> two 7-bit bytes (low first). */
 export function encode14(value: number): [number, number] {
   const v = value & 0x3fff;
@@ -100,11 +168,13 @@ export function decodeAddress(sel: readonly number[]): number {
 
 /** Checksum constant for an address (empirically derived from captures). */
 export function checksumConstantFor(addr: number): number {
-  // Advanced Custom per-switch mode bytes (93 + k*417, k = page*4 + switch):
-  // the captured constants follow the switch position within the page.
-  const rel = addr - 93;
-  if (rel >= 0 && rel < 8 * 417 && rel % 417 === 0) {
-    const sw = Math.floor(rel / 417) % 4;
+  // Advanced Custom switch blocks (93 + k*417): the captured constants follow
+  // the switch position within the page (A=0x28a, B=0x38b, C=0x18b, D=0x38b)
+  // and repeat every page. Verified on each block's first byte (the step
+  // mode); the whole block is assumed to share the switch's constant.
+  const rel = addr - ADV_CUSTOM_START;
+  if (rel >= 0 && rel < 8 * ADV_CUSTOM_BLOCK) {
+    const sw = Math.floor(rel / ADV_CUSTOM_BLOCK) % ADV_CUSTOM_SWITCHES;
     return [CK_DEFAULT, CK_FOOTSWITCH_B, CK_FOOTSWITCH_C, CK_FOOTSWITCH_B][sw];
   }
   if (addr >= ADDR.maxBanksPcA && addr <= ADDR.polarity) return CK_SYSTEM;

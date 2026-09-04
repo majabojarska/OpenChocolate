@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { CommsService, emptyConfig, type ChocolateDevice, type MonitorEntry } from './lib/device';
+import {
+  CommsService,
+  emptyConfig,
+  type ChocolateDevice,
+  type MidiCode,
+  type MonitorEntry,
+} from './lib/device';
 import DevicePanel from './components/DevicePanel.vue';
 import ConfigPanel from './components/ConfigPanel.vue';
 import MonitorView from './components/MonitorView.vue';
@@ -108,6 +114,20 @@ const onMaxBanksChange = (which: 0 | 1, count: number) =>
 const onUsrPageChange = (page: 0 | 1) => withBusy(() => comms.setUsrPage(page));
 const onFootswitchChange = (page: 0 | 1, index: 0 | 1 | 2 | 3, step: number) =>
   withBusy(() => comms.setFootswitchMode(page, index, step));
+const onFootswitchBankChange = (payload: {
+  page: 0 | 1;
+  index: 0 | 1 | 2 | 3;
+  bank: 0 | 1;
+  slot: number | null;
+  code: MidiCode | null;
+}) => {
+  const { page, index, bank, slot, code } = payload;
+  if (code === null || slot === null) {
+    withBusy(() => comms.clearFootswitchBanks(page, index, bank));
+  } else {
+    withBusy(() => comms.setFootswitchMidiCode(page, index, bank, slot, code));
+  }
+};
 const onCustomCcChange = (bank: number, cc: number, latch: number) =>
   withBusy(() => comms.setCustomCc(bank, cc, latch));
 
@@ -185,6 +205,7 @@ function importConfig(file: File) {
         @max-banks="({ which, count }) => onMaxBanksChange(which, count)"
         @usr-page="onUsrPageChange"
         @footswitch="({ page, index, step }) => onFootswitchChange(page, index, step)"
+        @footswitch-bank="onFootswitchBankChange"
         @custom-cc="({ bank, cc, latch }) => onCustomCcChange(bank, cc, latch)"
         @reread="withBusy(() => comms.reread())"
         @export="exportConfig"

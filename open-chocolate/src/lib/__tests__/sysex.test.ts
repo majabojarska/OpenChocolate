@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ADDR,
+  advCustomBlockAddr,
   buildConfigWrite,
   buildDiscoveryRequest,
   buildReadRequest,
@@ -8,9 +9,11 @@ import {
   checksumConstantFor,
   decode14,
   decodeAddress,
+  decodeMidiCodes,
   encode14,
   encodeAddress,
   footswitchAddr,
+  midiCodeAddr,
   parseMessage,
 } from '../sysex';
 
@@ -38,6 +41,50 @@ describe('checksum', () => {
     expect(checksumConstantFor(footswitchAddr(0, 2))).toBe(0x18b);
     expect(checksumConstantFor(ADDR.polarity)).toBe(0x20b);
     expect(checksumConstantFor(ADDR.maxGroupCount)).toBe(0x20b);
+  });
+
+  it('applies the switch constant to every byte of a switch block', () => {
+    // First byte of each switch block (93, 510, 927, 1344) carries the
+    // captured constant; the rest of the block is assumed to share it.
+    expect(checksumConstantFor(94)).toBe(0x28a); // switch A midi-code data
+    expect(checksumConstantFor(509)).toBe(0x28a);
+    expect(checksumConstantFor(510 + 80)).toBe(0x38b); // switch B midiCodeA end
+    expect(checksumConstantFor(927 + 300)).toBe(0x18b); // switch C sysEx region
+    expect(checksumConstantFor(1344 + 416)).toBe(0x38b); // switch D block end
+    // The next page repeats the pattern.
+    expect(checksumConstantFor(1761)).toBe(0x28a);
+    expect(checksumConstantFor(1761 + 417)).toBe(0x38b);
+  });
+});
+
+describe('advanced custom bank addressing', () => {
+  it('places switch blocks and midi-code entries at blob offsets', () => {
+    expect(advCustomBlockAddr(0, 0)).toBe(93);
+    expect(advCustomBlockAddr(0, 3)).toBe(1344);
+    expect(advCustomBlockAddr(1, 0)).toBe(1761);
+    expect(midiCodeAddr(0, 0, 0, 0, 0)).toBe(94);
+    expect(midiCodeAddr(0, 0, 0, 1, 2)).toBe(94 + 5 + 2);
+    // Captured remove-all targets: switch B bank B (591) and D bank A (1345).
+    expect(midiCodeAddr(0, 1, 1, 0, 0)).toBe(591);
+    expect(midiCodeAddr(0, 3, 0, 0, 0)).toBe(1345);
+  });
+
+  it('decodes the 16 midi-code slots of a bank', () => {
+    const block = new Uint8Array(417);
+    // midiCodeA starts at block+1: slot 0 = CC(93, 0) on channel 2, enabled.
+    block[1] = 1;
+    block[2] = 2;
+    block[3] = 1; // CC
+    block[4] = 93;
+    block[5] = 0;
+    // slot 1 untouched (disabled).
+    const bankA = decodeMidiCodes(block, 1);
+    expect(bankA).toHaveLength(16);
+    expect(bankA[0]).toEqual({ enabled: true, channel: 2, type: 1, data1: 93, data2: 0 });
+    expect(bankA[1].enabled).toBe(false);
+    // midiCodeB starts at block+81 and is empty here.
+    const bankB = decodeMidiCodes(block, 1 + 80);
+    expect(bankB.every((c) => !c.enabled)).toBe(true);
   });
 });
 

@@ -79,7 +79,7 @@ watch(
       <div class="row gap">
         <div class="seg">
           <button
-            v-for="f in ['all', 'RX', 'TX'] as const"
+            v-for="f in ['All', 'RX', 'TX'] as const"
             :key="f"
             :class="['seg-btn', { active: filter === f }]"
             @click="filter = f"
@@ -101,7 +101,7 @@ watch(
         <header class="group-head">
           <span class="group-name">{{ group.device }}</span>
           <span class="muted small">
-            {{ group.entries.length }} messages · until {{ time(group.entries[0].wall) }}
+            {{ group.entries.length }} messages · last at {{ time(group.entries[0].wall) }}
           </span>
         </header>
 

@@ -15,15 +15,23 @@
 import { MidiAccess, type MidiDevicePair, type MidiMessageEvent, type MidiTransport } from './midi';
 import {
   ADDR,
+  ADV_CUSTOM_BLOCK,
+  ADV_CUSTOM_PAGE_STRIDE,
+  ADV_CUSTOM_SWITCHES,
+  advCustomBlockAddr,
   buildConfigWrite,
   buildDiscoveryRequest,
   buildReadRequest,
   CUSTOM_CC_BANKS,
+  decodeMidiCodes,
   footswitchAddr,
+  MIDI_CODE_SLOTS,
+  midiCodeAddr,
   parseMessage,
   SYSEX_END,
   SYSEX_START,
   toHex,
+  type MidiCode,
   type ParsedMessage,
 } from './sysex';
 import { configFromSnapshot, pagesFromSnapshot, toSnapshot, type CommsSnapshot } from './snapshot';
@@ -62,6 +70,11 @@ export interface MonitorEntry {
   bytes: Uint8Array;
 }
 
+/** One Advanced Custom bank: 16 5-byte MIDI code slots. */
+export interface FootswitchBank {
+  codes: MidiCode[];
+}
+
 /** Decoded device configuration (what the UI edits). */
 export interface DeviceConfig {
   /** Operating mode id (0..12) or null when unknown. */
@@ -82,6 +95,12 @@ export interface DeviceConfig {
   customCc: ([number, number] | null)[];
   /** Step behaviour of footswitches A, B, C, D (Advanced Custom). */
   footswitchModes: (number | null)[];
+  /**
+   * Advanced Custom banks [A, B] of footswitches A-D on the current usr page,
+   * or null while unknown. Mirrors footswitchModes: only the active page is
+   * kept.
+   */
+  footswitchBanks: ([FootswitchBank, FootswitchBank] | null)[];
 }
 
 export function emptyConfig(): DeviceConfig {
@@ -96,8 +115,23 @@ export function emptyConfig(): DeviceConfig {
     usrPage: null,
     customCc: Array.from({ length: CUSTOM_CC_BANKS }, () => null),
     footswitchModes: [null, null, null, null],
+    footswitchBanks: [null, null, null, null],
   };
 }
+
+/** A zeroed (empty) bank: nothing is enabled. */
+export function emptyFootswitchBank(): FootswitchBank {
+  return {
+    codes: Array.from({ length: MIDI_CODE_SLOTS }, () => defaultMidiCode()),
+  };
+}
+
+/** A disabled, zeroed midi-code entry. */
+export function defaultMidiCode(): MidiCode {
+  return { enabled: false, channel: 0, type: 0, data1: 0, data2: 0 };
+}
+
+export type { MidiCode } from './sysex';
 
 export interface ChocolateDevice {
   pair: MidiDevicePair;
@@ -517,6 +551,68 @@ export class CommsService {
       }
     }
     this.pagesFor(device.pair.key).set(index, Uint8Array.from(payload));
+    this.decodeSystemBlock(device);
+    this.decodeAdvancedCustom(device);
+  }
+
+  /**
+   * Read one blob byte from the raw read-back pages, or null while the page
+   * carrying it has not arrived yet.
+   */
+  private blobByte(pages: Map<number, Uint8Array>, addr: number): number | null {
+    const pageId = Math.floor(addr / READ_PAGE_STRIDE);
+    const offset = addr - pageId * READ_PAGE_STRIDE;
+    const page = pages.get(pageId);
+    if (!page) return null;
+    const value = page[offset];
+    return value === undefined ? null : value;
+  }
+
+  /** Decode the trailing system block (blob 23637..23642) once it is read. */
+  private decodeSystemBlock(device: ChocolateDevice): void {
+    const pages = this.pagesFor(device.pair.key);
+    const bankA = this.blobByte(pages, ADDR.maxBanksPcA);
+    const bankB = this.blobByte(pages, ADDR.maxBanksPcB);
+    const groups = this.blobByte(pages, ADDR.maxGroupCount);
+    const page = this.blobByte(pages, ADDR.usrPage);
+    const polarity = this.blobByte(pages, ADDR.polarity);
+    if (bankA !== null) device.config.maxBanksPcA = bankA + 1;
+    if (bankB !== null) device.config.maxBanksPcB = bankB + 1;
+    if (groups !== null) device.config.maxGroupCount = groups + 1;
+    if (page === 0 || page === 1) device.config.usrPage = page;
+    if (polarity === 0 || polarity === 1) device.config.polarity = polarity === 1;
+  }
+
+  /**
+   * Decode the Advanced Custom banks and step modes of the active usr page
+   * from the raw read-back pages. Called whenever a page lands and again when
+   * the page selector changes, so banks always track config.usrPage.
+   */
+  private decodeAdvancedCustom(device: ChocolateDevice): void {
+    const pages = this.pagesFor(device.pair.key);
+    // Seed the page selector once from the read-back; later writes take over.
+    if (device.config.usrPage === null) {
+      const page = this.blobByte(pages, ADDR.usrPage);
+      if (page === 0 || page === 1) device.config.usrPage = page;
+    }
+    const page = device.config.usrPage as 0 | 1 | null;
+    if (page === null) return;
+    const first = advCustomBlockAddr(page, 0);
+    const region = new Uint8Array(ADV_CUSTOM_PAGE_STRIDE);
+    for (let i = 0; i < region.length; i++) {
+      const value = this.blobByte(pages, first + i);
+      if (value === null) return; // not all pages arrived yet
+      region[i] = value;
+    }
+    for (let sw = 0; sw < ADV_CUSTOM_SWITCHES; sw++) {
+      const base = sw * ADV_CUSTOM_BLOCK;
+      const mode = region[base];
+      if (mode <= 4) device.config.footswitchModes[sw] = mode;
+      device.config.footswitchBanks[sw] = [
+        { codes: decodeMidiCodes(region, base + 1) },
+        { codes: decodeMidiCodes(region, base + 1 + MIDI_CODE_SLOTS * 5) },
+      ];
+    }
   }
 
   /**
@@ -591,6 +687,8 @@ export class CommsService {
     const device = this.requireConnected();
     await this.writeConfig(ADDR.usrPage, page);
     device.config.usrPage = page;
+    // Point the banks at the newly selected page (the raw pages hold both).
+    this.decodeAdvancedCustom(device);
     this.emitState();
   }
 
@@ -600,6 +698,61 @@ export class CommsService {
     await this.writeConfig(base, latch);
     await this.writeConfig(base + 1, cc);
     device.config.customCc[bank] = [cc, latch];
+    this.emitState();
+  }
+
+  /**
+   * Write one midi-code slot (5 bytes) of an Advanced Custom footswitch bank.
+   * Data bytes go first and the enable flag last, so a rebuilt entry never
+   * fires with stale values in between.
+   */
+  async setFootswitchMidiCode(
+    page: 0 | 1,
+    index: 0 | 1 | 2 | 3,
+    bank: 0 | 1,
+    slot: number,
+    code: MidiCode
+  ): Promise<void> {
+    const device = this.requireConnected();
+    const bytes = [
+      code.channel & 0x7f,
+      code.type & 0x7f,
+      code.data1 & 0x7f,
+      code.data2 & 0x7f,
+      code.enabled ? 1 : 0,
+    ];
+    const base = midiCodeAddr(page, index, bank, slot, 0);
+    for (let field = 1; field <= 4; field++) {
+      await this.writeConfig(base + field, bytes[field - 1]);
+    }
+    await this.writeConfig(base, bytes[4]);
+    const banks =
+      device.config.footswitchBanks[index] ??
+      (device.config.footswitchBanks[index] = [emptyFootswitchBank(), emptyFootswitchBank()]);
+    banks[bank].codes[slot] = {
+      enabled: bytes[4] === 1,
+      channel: bytes[0],
+      type: bytes[1],
+      data1: bytes[2],
+      data2: bytes[3],
+    };
+    this.emitState();
+  }
+
+  /**
+   * Clear every midi-code slot of one Advanced Custom footswitch bank by
+   * zeroing the whole 80-byte region.
+   */
+  async clearFootswitchBanks(page: 0 | 1, index: 0 | 1 | 2 | 3, bank: 0 | 1): Promise<void> {
+    const device = this.requireConnected();
+    const base = midiCodeAddr(page, index, bank, 0, 0);
+    for (let i = 0; i < MIDI_CODE_SLOTS * 5; i++) {
+      await this.writeConfig(base + i, 0);
+    }
+    const banks =
+      device.config.footswitchBanks[index] ??
+      (device.config.footswitchBanks[index] = [emptyFootswitchBank(), emptyFootswitchBank()]);
+    banks[bank] = emptyFootswitchBank();
     this.emitState();
   }
 
@@ -631,6 +784,8 @@ export class CommsService {
     for (const [index, bytes] of pagesFromSnapshot(snapshot)) {
       pages.set(index, bytes);
     }
+    // Re-derive the Advanced Custom banks from the imported raw pages.
+    this.decodeAdvancedCustom(device);
     this.emitState();
   }
 
@@ -654,6 +809,20 @@ export class CommsService {
     for (let i = 0; i < 4; i++) {
       const step = cfg.footswitchModes[i];
       if (step !== null) await this.setFootswitchMode(page, i as 0 | 1 | 2 | 3, step);
+    }
+    // Banks: only slots that differ from a zeroed entry need a write, so a
+    // freshly read config costs nothing extra here.
+    for (let i = 0; i < 4; i++) {
+      const banks = cfg.footswitchBanks[i];
+      if (!banks) continue;
+      for (let b = 0; b < 2; b++) {
+        for (let slot = 0; slot < MIDI_CODE_SLOTS; slot++) {
+          const code = banks[b].codes[slot];
+          if (code && (code.enabled || code.channel || code.type || code.data1 || code.data2)) {
+            await this.setFootswitchMidiCode(page, i as 0 | 1 | 2 | 3, b as 0 | 1, slot, code);
+          }
+        }
+      }
     }
   }
 }

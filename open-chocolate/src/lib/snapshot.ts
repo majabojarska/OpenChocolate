@@ -6,8 +6,8 @@
  * fall back to null instead of throwing.
  */
 
-import type { DeviceConfig } from './device';
-import { CUSTOM_CC_BANKS } from './sysex';
+import type { DeviceConfig, FootswitchBank, MidiCode } from './device';
+import { CUSTOM_CC_BANKS, MIDI_CODE_SLOTS } from './sysex';
 
 export interface CommsSnapshot {
   app: string;
@@ -61,7 +61,41 @@ export function configFromSnapshot(snapshot: unknown): DeviceConfig {
     footswitchModes: [0, 1, 2, 3].map((i) =>
       numOrNull(Array.isArray(cfg.footswitchModes) ? cfg.footswitchModes[i] : null)
     ),
+    footswitchBanks: [0, 1, 2, 3].map((sw) => {
+      const raw = cfg.footswitchBanks;
+      return parseBankPair(Array.isArray(raw) ? raw[sw] : null);
+    }),
   };
+}
+
+/** Parse one widened [bankA, bankB] pair into bank objects, or null. */
+function parseBankPair(value: unknown): [FootswitchBank, FootswitchBank] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const bankA = parseBank(value[0]);
+  const bankB = parseBank(value[1]);
+  if (!bankA || !bankB) return null;
+  return [bankA, bankB];
+}
+
+function parseBank(value: unknown): FootswitchBank | null {
+  const codes = asRecord(value)?.codes;
+  if (!Array.isArray(codes)) return null;
+  const parsed: MidiCode[] = [];
+  for (let s = 0; s < MIDI_CODE_SLOTS; s++) {
+    const rec = asRecord(codes[s]);
+    parsed.push(
+      rec
+        ? {
+            enabled: rec.enabled === true || rec.enabled === 1,
+            channel: numOrNull(rec.channel) ?? 0,
+            type: numOrNull(rec.type) ?? 0,
+            data1: numOrNull(rec.data1) ?? 0,
+            data2: numOrNull(rec.data2) ?? 0,
+          }
+        : { enabled: false, channel: 0, type: 0, data1: 0, data2: 0 }
+    );
+  }
+  return { codes: parsed };
 }
 
 /** Defensively parse the raw read-back pages of a loaded snapshot file. */

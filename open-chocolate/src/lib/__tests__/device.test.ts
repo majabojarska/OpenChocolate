@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CommsService, READ_PAGE_COUNT, type MonitorEntry } from '../device';
 import type { MidiDevicePair, MidiMessageEvent, MidiTransport } from '../midi';
-import { ADDR, buildConfigWrite, decodeAddress, SYSEX_END, SYSEX_START } from '../sysex';
+import {
+  ADDR,
+  buildConfigWrite,
+  decodeAddress,
+  midiCodeAddr,
+  SYSEX_END,
+  SYSEX_START,
+} from '../sysex';
 
 // The service mirrors all traffic to the console - silence it in tests.
 vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -113,7 +120,7 @@ class FakeTransport implements MidiTransport {
     return null;
   }
 
-  private payloadFor(pageId: number): number[] {
+  protected payloadFor(pageId: number): number[] {
     if (pageId === 0) return PAGE_0_PAYLOAD;
     return Array.from({ length: 16 }, (_, i) => (i + pageId) & 0x7f);
   }
@@ -231,5 +238,130 @@ describe('CommsService', () => {
     const reads = transport.sent.filter((f) => f[3] === 0x0d);
     expect(reads).toHaveLength(readsAfterConnect + 1);
     expect(comms.getConnected()).toBeNull();
+  });
+});
+
+/**
+ * Transport whose read-back carries real-size pages with Advanced Custom
+ * bank data and a populated trailing system block.
+ */
+class AdvTransport extends FakeTransport {
+  protected payloadFor(pageId: number): number[] {
+    if (pageId === 0) {
+      const p = new Uint8Array(1153);
+      p[0] = 3; // Advanced Custom mode
+      // usr page 0, switch A block at blob 93: mode 2 (press-release),
+      // midiCodeA slot 0 = enabled CC(5, 99) on channel 1.
+      p[93] = 2;
+      p[94] = 1; // enable
+      p[95] = 1; // channel
+      p[96] = 1; // type CC
+      p[97] = 5; // data1
+      p[98] = 99; // data2
+      return Array.from(p);
+    }
+    if (pageId === 1009) {
+      // Covers the rest of page 0's blocks (blob 1009..2161); switch D at
+      // 1344: mode 3 (long press), midiCodeB slot 0 = enabled PC(7) ch0.
+      const p = new Uint8Array(1153);
+      p[1344 - 1009] = 3;
+      p[1425 - 1009] = 1; // midiCodeB[0].enable (block+81)
+      p[1428 - 1009] = 7; // data1 = PC value
+      return Array.from(p);
+    }
+    if (pageId === 23 * 1009) {
+      // Blob 23207..23704: system block ends at 23637+.
+      const p = new Uint8Array(500);
+      const off = ADDR.usrPage - 23 * 1009; // 433
+      p[off] = 0; // usrPage = variant 1
+      p[off + 2] = 1; // polarity = on
+      p[off - 3] = 3; // maxBanksPcA = 3+1 = 4
+      return Array.from(p);
+    }
+    return super.payloadFor(pageId);
+  }
+}
+
+describe('Advanced Custom banks', () => {
+  it('decodes the active usr page banks from the read-back', async () => {
+    const comms = makeService(new AdvTransport());
+    await comms.scan();
+    await comms.connect(pair.key);
+
+    const cfg = comms.getConnected()?.config;
+    expect(cfg?.usrPage).toBe(0);
+    expect(cfg?.footswitchModes[0]).toBe(2);
+    expect(cfg?.footswitchModes[3]).toBe(3);
+    expect(cfg?.footswitchBanks[0]?.[0].codes[0]).toEqual({
+      enabled: true,
+      channel: 1,
+      type: 1,
+      data1: 5,
+      data2: 99,
+    });
+    expect(cfg?.footswitchBanks[0]?.[0].codes[1].enabled).toBe(false);
+    expect(cfg?.footswitchBanks[3]?.[1].codes[0]).toEqual({
+      enabled: true,
+      channel: 0,
+      type: 0,
+      data1: 7,
+      data2: 0,
+    });
+    expect(cfg?.maxBanksPcA).toBe(4);
+    expect(cfg?.polarity).toBe(true);
+  });
+
+  it('writes a bank midi-code entry byte-by-byte, then the enable flag', async () => {
+    const transport = new FakeTransport();
+    const comms = makeService(transport);
+    await comms.scan();
+    await comms.connect(pair.key);
+
+    await comms.setFootswitchMidiCode(0, 0, 0, 0, {
+      enabled: true,
+      channel: 2,
+      type: 1,
+      data1: 93,
+      data2: 0,
+    });
+
+    const base = midiCodeAddr(0, 0, 0, 0, 0);
+    expect(transport.sent.at(-5)).toEqual(buildConfigWrite(base + 1, 2)); // channel
+    expect(transport.sent.at(-4)).toEqual(buildConfigWrite(base + 2, 1)); // type
+    expect(transport.sent.at(-3)).toEqual(buildConfigWrite(base + 3, 93)); // data1
+    expect(transport.sent.at(-2)).toEqual(buildConfigWrite(base + 4, 0)); // data2
+    expect(transport.sent.at(-1)).toEqual(buildConfigWrite(base, 1)); // enable last
+
+    expect(comms.getConnected()?.config.footswitchBanks[0]?.[0].codes[0]).toEqual({
+      enabled: true,
+      channel: 2,
+      type: 1,
+      data1: 93,
+      data2: 0,
+    });
+  });
+
+  it('clears a whole bank by zeroing all 80 bytes', async () => {
+    const transport = new FakeTransport();
+    const comms = makeService(transport);
+    await comms.scan();
+    await comms.connect(pair.key);
+
+    await comms.setFootswitchMidiCode(0, 0, 1, 3, {
+      enabled: true,
+      channel: 0,
+      type: 0,
+      data1: 7,
+      data2: 0,
+    });
+    const before = transport.sent.length;
+    await comms.clearFootswitchBanks(0, 0, 1);
+
+    const writes = transport.sent.slice(before);
+    expect(writes).toHaveLength(16 * 5);
+    const base = midiCodeAddr(0, 0, 1, 0, 0);
+    expect(writes[0]).toEqual(buildConfigWrite(base, 0));
+    expect(writes.at(-1)).toEqual(buildConfigWrite(base + 16 * 5 - 1, 0));
+    expect(comms.getConnected()?.config.footswitchBanks[0]?.[1].codes[3].enabled).toBe(false);
   });
 });

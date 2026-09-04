@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { MODES, MODE_META } from '../lib/modes';
-import type { DeviceConfig } from '../lib/device';
+import type { DeviceConfig, MidiCode } from '../lib/device';
 
 // Import mode-specific sub-views
 import {
@@ -28,6 +28,15 @@ const emit = defineEmits<{
   'max-banks': [payload: { which: 0 | 1; count: number }];
   'usr-page': [page: 0 | 1];
   footswitch: [payload: { page: 0 | 1; index: 0 | 1 | 2 | 3; step: number }];
+  'footswitch-bank': [
+    payload: {
+      page: 0 | 1;
+      index: 0 | 1 | 2 | 3;
+      bank: 0 | 1;
+      slot: number | null;
+      code: MidiCode | null;
+    },
+  ];
   'custom-cc': [payload: { bank: number; cc: number; latch: number }];
   reread: [];
   export: [];
@@ -141,6 +150,7 @@ function onImportFile(ev: Event) {
           :busy="busy"
           @usr-page="$emit('usr-page', $event)"
           @footswitch="$emit('footswitch', $event)"
+          @footswitch-bank="$emit('footswitch-bank', $event)"
         />
 
         <!-- Predefined actions (for modes with fixed footswitch actions) -->
