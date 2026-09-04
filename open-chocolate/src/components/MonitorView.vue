@@ -6,12 +6,12 @@ const props = defineProps<{ entries: MonitorEntry[] }>();
 
 defineEmits<{ clear: [] }>();
 
-const filter = ref<'all' | 'RX' | 'TX'>('all');
+const filter = ref<'All' | 'RX' | 'TX'>('All');
 const autoScroll = ref(true);
 const listEl = ref<HTMLElement | null>(null);
 
 const filtered = computed(() =>
-  filter.value === 'all' ? props.entries : props.entries.filter((e) => e.dir === filter.value)
+  filter.value === 'All' ? props.entries : props.entries.filter((e) => e.dir === filter.value)
 );
 
 /**

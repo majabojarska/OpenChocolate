@@ -1,0 +1,108 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`DevicePanel snapshot > lists a single detected device as selected 1`] = `
+"<section class="card">
+  <div class="card-head">
+    <h2>Devices</h2><span class="muted">1 discovered</span>
+  </div>
+  <!--v-if-->
+  <ul class="device-list">
+    <li class="device-row selected" role="button" tabindex="0" aria-label="Select device Chocolate Plus"><span class="dot dot-yellow" title="Detected"></span>
+      <div class="device-info"><span class="device-name">Chocolate Plus</span><span class="muted small">SinCo · Detected</span></div><button class="btn btn-small btn-primary">Connect</button>
+    </li>
+  </ul>
+</section>"
+`;
+
+exports[`DevicePanel snapshot > lists mixed-status devices and keeps the selected one highlighted 1`] = `
+"<section class="card">
+  <div class="card-head">
+    <h2>Devices</h2><span class="muted">3 discovered</span>
+  </div>
+  <!--v-if-->
+  <ul class="device-list">
+    <li class="device-row" role="button" tabindex="0" aria-label="Select device Chocolate Plus"><span class="dot dot-yellow" title="Detected"></span>
+      <div class="device-info"><span class="device-name">Chocolate Plus</span><span class="muted small">SinCo · Detected</span></div><button class="btn btn-small btn-primary">Connect</button>
+    </li>
+    <li class="device-row" role="button" tabindex="0" aria-label="Select device Other Midi"><span class="dot dot-red dot-dim" title="Failed"></span>
+      <div class="device-info"><span class="device-name">Other Midi</span><span class="muted small">Unknown maker · Failed</span></div><button class="btn btn-small btn-primary">Connect</button>
+    </li>
+    <li class="device-row selected" role="button" tabindex="0" aria-label="Select device Chocolate Plus B"><span class="dot dot-green" title="Connected"></span>
+      <div class="device-info"><span class="device-name">Chocolate Plus B</span><span class="muted small">SinCo · Connected</span></div><button class="btn btn-small"> Disconnect </button>
+    </li>
+  </ul>
+</section>"
+`;
+
+exports[`DevicePanel snapshot > prompts to rescan before the first scan 1`] = `
+"<section class="card">
+  <div class="card-head">
+    <h2>Devices</h2><span class="muted">0 discovered</span>
+  </div>
+  <p class="muted empty">Press Rescan to look for M-Vave Chocolate Plus devices on your MIDI ports.</p>
+  <ul class="device-list"></ul>
+</section>"
+`;
+
+exports[`DevicePanel snapshot > reports no devices after a completed scan 1`] = `
+"<section class="card">
+  <div class="card-head">
+    <h2>Devices</h2><span class="muted">0 discovered</span>
+  </div>
+  <p class="muted empty">No devices responded to the discovery request.</p>
+  <ul class="device-list"></ul>
+</section>"
+`;
+
+exports[`DevicePanel snapshot > shows a failed device with a connect button 1`] = `
+"<section class="card">
+  <div class="card-head">
+    <h2>Devices</h2><span class="muted">1 discovered</span>
+  </div>
+  <!--v-if-->
+  <ul class="device-list">
+    <li class="device-row" role="button" tabindex="0" aria-label="Select device Chocolate Plus"><span class="dot dot-red dot-dim" title="Failed"></span>
+      <div class="device-info"><span class="device-name">Chocolate Plus</span><span class="muted small">SinCo · Failed</span></div><button class="btn btn-small btn-primary">Connect</button>
+    </li>
+  </ul>
+</section>"
+`;
+
+exports[`DevicePanel snapshot > shows the connecting state on the connecting device 1`] = `
+"<section class="card">
+  <div class="card-head">
+    <h2>Devices</h2><span class="muted">1 discovered</span>
+  </div>
+  <!--v-if-->
+  <ul class="device-list">
+    <li class="device-row" role="button" tabindex="0" aria-label="Select device Chocolate Plus"><span class="dot dot-yellow dot-pulse" title="Connecting…"></span>
+      <div class="device-info"><span class="device-name">Chocolate Plus</span><span class="muted small">SinCo · Connecting…</span></div>
+      <!--v-if-->
+    </li>
+  </ul>
+</section>"
+`;
+
+exports[`DevicePanel snapshot > shows the disconnect button on the connected device 1`] = `
+"<section class="card">
+  <div class="card-head">
+    <h2>Devices</h2><span class="muted">1 discovered</span>
+  </div>
+  <!--v-if-->
+  <ul class="device-list">
+    <li class="device-row selected" role="button" tabindex="0" aria-label="Select device Chocolate Plus"><span class="dot dot-green" title="Connected"></span>
+      <div class="device-info"><span class="device-name">Chocolate Plus</span><span class="muted small">SinCo · Connected</span></div><button class="btn btn-small"> Disconnect </button>
+    </li>
+  </ul>
+</section>"
+`;
+
+exports[`DevicePanel snapshot > shows the scanning message while scanning 1`] = `
+"<section class="card">
+  <div class="card-head">
+    <h2>Devices</h2><span class="muted">0 discovered</span>
+  </div>
+  <p class="muted empty">Scanning for M-Vave Chocolate Plus devices…</p>
+  <ul class="device-list"></ul>
+</section>"
+`;
