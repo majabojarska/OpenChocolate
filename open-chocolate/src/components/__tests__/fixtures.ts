@@ -26,7 +26,7 @@ export function fullConfig(): DeviceConfig {
   config.mode = 0x03; // Advanced Custom
   config.midiInterface = 1; // TRS-MIDI
   config.midiChannel = 4; // UI shows 5
-  config.polarity = true;
+  config.reversePolarity = true;
   config.maxGroupCount = 8;
   config.maxBanksPcA = 4;
   config.maxBanksPcB = 16;

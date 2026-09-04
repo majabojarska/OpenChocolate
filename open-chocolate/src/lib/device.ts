@@ -84,7 +84,7 @@ export interface DeviceConfig {
   midiInterface: number | null;
   /** MIDI channel, 0-based (UI shows +1). */
   midiChannel: number | null;
-  polarity: boolean;
+  reversePolarity: boolean;
   /** Maximum group count 1..8 (value written = count - 1). */
   maxGroupCount: number | null;
   /** Max banks per Program Change mode (value written = count - 1). */
@@ -109,7 +109,7 @@ export function emptyConfig(): DeviceConfig {
     mode: null,
     midiInterface: null,
     midiChannel: null,
-    polarity: false,
+    reversePolarity: false,
     maxGroupCount: null,
     maxBanksPcA: null,
     maxBanksPcB: null,
@@ -581,7 +581,7 @@ export class CommsService {
     if (bankB !== null) device.config.maxBanksPcB = bankB + 1;
     if (groups !== null) device.config.maxGroupCount = groups + 1;
     if (page === 0 || page === 1) device.config.usrPage = page;
-    if (polarity === 0 || polarity === 1) device.config.polarity = polarity === 1;
+    if (polarity === 0 || polarity === 1) device.config.reversePolarity = polarity === 1;
   }
 
   /**
@@ -662,7 +662,7 @@ export class CommsService {
     const device = this.requireConnected();
     const value = enabled ? 1 : 0;
     await this.writeConfig(ADDR.polarity, value);
-    device.config.polarity = enabled;
+    device.config.reversePolarity = enabled;
     this.emitState();
   }
 
@@ -798,7 +798,7 @@ export class CommsService {
     if (cfg.mode !== null) await this.setMode(cfg.mode);
     if (cfg.midiInterface !== null) await this.setMidiInterface(cfg.midiInterface === 1);
     if (cfg.midiChannel !== null) await this.setMidiChannel(cfg.midiChannel);
-    await this.setPolarity(cfg.polarity);
+    await this.setPolarity(cfg.reversePolarity);
     if (cfg.maxGroupCount !== null) await this.setMaxGroupCount(cfg.maxGroupCount);
     if (cfg.maxBanksPcA !== null) await this.setMaxBanks(0, cfg.maxBanksPcA);
     if (cfg.maxBanksPcB !== null) await this.setMaxBanks(1, cfg.maxBanksPcB);

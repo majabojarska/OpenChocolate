@@ -228,7 +228,7 @@ function onImportFile(ev: Event) {
           <input
             type="checkbox"
             class="switch"
-            :checked="config.polarity"
+            :checked="config.reversePolarity"
             :disabled="busy"
             @change="$emit('polarity', checked($event))"
           />

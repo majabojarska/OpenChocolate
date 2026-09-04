@@ -33,7 +33,7 @@ describe('ConfigPanel snapshot', () => {
       c.maxGroupCount = 4;
       c.midiInterface = 0;
       c.maxBanksPcA = 8;
-      c.polarity = false;
+      c.reversePolarity = false;
     });
   });
 

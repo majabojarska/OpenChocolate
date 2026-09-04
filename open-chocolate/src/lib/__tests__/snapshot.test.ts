@@ -7,7 +7,7 @@ const config: DeviceConfig = {
   mode: 3,
   midiInterface: 1,
   midiChannel: 5,
-  polarity: true,
+  reversePolarity: true,
   maxGroupCount: 4,
   maxBanksPcA: 32,
   maxBanksPcB: 8,
@@ -58,7 +58,7 @@ describe('toSnapshot / configFromSnapshot round-trip', () => {
     const cfg = configFromSnapshot(restored);
     expect(cfg.mode).toBeNull();
     expect(cfg.midiChannel).toBeNull();
-    expect(cfg.polarity).toBe(true);
+    expect(cfg.reversePolarity).toBe(true);
     expect(cfg.maxGroupCount).toBeNull();
     expect(cfg.customCc).toEqual([null, null, [20, 1], null, null]);
     expect(cfg.footswitchModes).toEqual([null, 2, null, null]);

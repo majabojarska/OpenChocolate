@@ -309,7 +309,7 @@ describe('Advanced Custom banks', () => {
       data2: 0,
     });
     expect(cfg?.maxBanksPcA).toBe(4);
-    expect(cfg?.polarity).toBe(true);
+    expect(cfg?.reversePolarity).toBe(true);
   });
 
   it('writes a bank midi-code entry byte-by-byte, then the enable flag', async () => {

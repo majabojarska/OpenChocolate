@@ -44,7 +44,7 @@ export function configFromSnapshot(snapshot: unknown): DeviceConfig {
     mode: numOrNull(cfg.mode),
     midiInterface: numOrNull(cfg.midiInterface),
     midiChannel: numOrNull(cfg.midiChannel),
-    polarity: Boolean(cfg.polarity),
+    reversePolarity: Boolean(cfg.polarity),
     maxGroupCount: numOrNull(cfg.maxGroupCount),
     maxBanksPcA: numOrNull(cfg.maxBanksPcA),
     maxBanksPcB: numOrNull(cfg.maxBanksPcB),
