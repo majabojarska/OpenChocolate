@@ -3,6 +3,7 @@ import { CommsService, READ_PAGE_COUNT, type MonitorEntry } from '../device';
 import type { MidiDevicePair, MidiMessageEvent, MidiTransport } from '../midi';
 import {
   ADDR,
+  buildBankClearWrite,
   buildConfigWrite,
   decodeAddress,
   midiCodeAddr,
@@ -116,7 +117,7 @@ class FakeTransport implements MidiTransport {
       const final = frame[13] === 0x70;
       return readResponse(pageId, this.payloadFor(pageId), final);
     }
-    if (cmd === 0x09 && frame[4] === 0x49) return ACK;
+    if (cmd === 0x09 && (frame[4] === 0x49 || frame[4] === 0x41)) return ACK;
     return null;
   }
 
@@ -341,7 +342,7 @@ describe('Advanced Custom banks', () => {
     });
   });
 
-  it('clears a whole bank by zeroing all 80 bytes', async () => {
+  it('clears a whole bank with one bulk write, matching the official app', async () => {
     const transport = new FakeTransport();
     const comms = makeService(transport);
     await comms.scan();
@@ -357,11 +358,10 @@ describe('Advanced Custom banks', () => {
     const before = transport.sent.length;
     await comms.clearFootswitchBanks(0, 0, 1);
 
+    // One 111-byte `09 41` bulk write instead of 80 single-byte writes.
     const writes = transport.sent.slice(before);
-    expect(writes).toHaveLength(16 * 5);
-    const base = midiCodeAddr(0, 0, 1, 0, 0);
-    expect(writes[0]).toEqual(buildConfigWrite(base, 0));
-    expect(writes.at(-1)).toEqual(buildConfigWrite(base + 16 * 5 - 1, 0));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toEqual(buildBankClearWrite(0, 0, 1));
     expect(comms.getConnected()?.config.footswitchBanks[0]?.[1].codes[3].enabled).toBe(false);
   });
 });

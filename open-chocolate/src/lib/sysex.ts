@@ -34,6 +34,8 @@ export const SUB_CONFIG_WRITE = 0x49;
 export const SUB_READ_REQ = 0x41;
 export const SUB_READ_RESP = 0x49;
 export const SUB_READ_RESP_FINAL = 0x79;
+/** `09 41` bulk config write - the official app uses it for bank edits. */
+export const SUB_CONFIG_WRITE_BULK = 0x41;
 
 /** Fixed parameter following the sub-command (offsets 5-8). */
 export const FIXED_PARAM = [0x00, 0x00, 0x00, 0x02] as const;
@@ -43,6 +45,18 @@ export const CK_DEFAULT = 0x28a;
 export const CK_FOOTSWITCH_B = 0x38b;
 export const CK_FOOTSWITCH_C = 0x18b;
 export const CK_SYSTEM = 0x20b;
+
+/**
+ * Bulk-write checksum base for the `09 41` bank-clear message.
+ *
+ * The clear checksum is `K - sum(D)` (no Q/V subtraction, unlike `09 49`),
+ * with K = CK_BULK_BASE - CK_BULK_BANK_STEP * bank. Reproduces both captured
+ * remove-all messages bit-perfect:
+ *   - footswitch D bank A (addr 1345, sum 216): 0x400 - 216 = 0x328 = `28 06`
+ *   - footswitch B bank B (addr 591,  sum 224): 0x3b0 - 224 = 0x2d0 = `50 05`
+ */
+export const CK_BULK_BASE = 0x400;
+export const CK_BULK_BANK_STEP = 0x50;
 
 /**
  * Configuration addresses (verified against the official app's struct layout
@@ -212,6 +226,37 @@ export function buildConfigWrite(addr: number, value: number): number[] {
   ];
   // Q = D[8] (first address byte), V = value - both subtracted per spec.
   const ck = checksum(d, checksumConstantFor(addr), d[8] + (value & 0x7f));
+  return [SYSEX_START, ...d, ...ck, SYSEX_END];
+}
+
+/**
+ * Build a `09 41` bulk write that clears one whole Advanced Custom footswitch
+ * bank in a single message:
+ * `F0 00 32 09 41 05 00 00 02 <addr:4> 00 0A <93 zero bytes> <ck:2> F7`
+ *
+ * This is the exact 111-byte message the official app sends for "Remove all"
+ * (captured bit-perfect for footswitch B bank B and footswitch D bank A).
+ * `addr` is the first byte of the bank's 80-byte midi-code region. The pairs
+ * `00 0A` + 93 zero bytes (95 bytes of payload) are reproduced faithfully.
+ */
+export function buildBankClearWrite(page: number, sw: number, bank: 0 | 1): number[] {
+  const addr = midiCodeAddr(page, sw, bank, 0, 0);
+  const d = [
+    ...MANUFACTURER,
+    CMD_CONFIG,
+    SUB_CONFIG_WRITE_BULK,
+    0x05,
+    0x00,
+    0x00,
+    0x02,
+    ...encodeAddress(addr),
+    0x00,
+    0x0a,
+    ...new Array<number>(93).fill(0),
+  ];
+  // Bulk clear checksum: K - sum(D) with no Q/V subtraction.
+  const k = CK_BULK_BASE - CK_BULK_BANK_STEP * bank;
+  const ck = checksum(d, k);
   return [SYSEX_START, ...d, ...ck, SYSEX_END];
 }
 

@@ -19,6 +19,7 @@ import {
   ADV_CUSTOM_PAGE_STRIDE,
   ADV_CUSTOM_SWITCHES,
   advCustomBlockAddr,
+  buildBankClearWrite,
   buildConfigWrite,
   buildDiscoveryRequest,
   buildReadRequest,
@@ -740,15 +741,16 @@ export class CommsService {
   }
 
   /**
-   * Clear every midi-code slot of one Advanced Custom footswitch bank by
-   * zeroing the whole 80-byte region.
+   * Clear every midi-code slot of one Advanced Custom footswitch bank with a
+   * single `09 41` bulk write - the same one-message request the official app
+   * sends for "Remove all" (a byte-by-byte `09 49` loop would take 80
+   * round-trips and flood the link).
    */
   async clearFootswitchBanks(page: 0 | 1, index: 0 | 1 | 2 | 3, bank: 0 | 1): Promise<void> {
     const device = this.requireConnected();
-    const base = midiCodeAddr(page, index, bank, 0, 0);
-    for (let i = 0; i < MIDI_CODE_SLOTS * 5; i++) {
-      await this.writeConfig(base + i, 0);
-    }
+    if (!device.pair.outputId) throw new Error('Device has no MIDI output');
+    await this.tx(device.pair.outputId, buildBankClearWrite(page, index, bank));
+    await this.expect(device.pair.key, (m) => m.kind === 'ack', 2000);
     const banks =
       device.config.footswitchBanks[index] ??
       (device.config.footswitchBanks[index] = [emptyFootswitchBank(), emptyFootswitchBank()]);

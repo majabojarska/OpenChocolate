@@ -160,13 +160,31 @@ addresses 93 (A), 510 (B), 927 (C) and 1344 (D). Captured values:
 
 ## Bank transfers
 
-Bank edits are segmented transfers, not one monolithic message:
+Bank edits are segmented transfers, not one monolithic message.
 
-- remove-all uses a 111-byte `09 41 05` message;
+### Remove-all (`09 41 05`)
+
+The official app clears one whole footswitch bank with a single 111-byte
+message (two captures, footswitch B bank B and footswitch D bank A):
+
+```text
+F0 00 32 09 41 05 00 00 02 [addr:4] 00 0A [93 x 00] [ck:2] F7
+```
+
+`addr` is the bank's first 80-byte midi-code region (`midiCodeAddr(page, sw,
+bank, 0, 0)`); the `00 0A` prefix and 93 zero bytes are reproduced as
+captured. The two-byte checksum is `K - sum(D)` with `D` = all bytes after
+`F0` through the last data byte (no `Q`/`V` subtraction), and
+`K = 0x400 - 0x50 * bank` (bank A = `0x400`, bank B = `0x3B0`). This
+reproduces both captures bit-perfect (`28 06` and `50 05`).
+
+### Add/configure chunk writes
+
 - add/configure operations send fourteen 1190-byte records followed by a
   12-byte acknowledgement, with a final 56-byte record;
 - long-record indexes advance by `08`: `00, 08, ... 68`;
-- bank payload field meanings and the validation algorithm remain unresolved.
+- the primary-midi-code fields are understood; the chunk-write validation
+  algorithm remains unresolved.
 
 No fixed four-footswitch offset mapping has been established from the captures.
 

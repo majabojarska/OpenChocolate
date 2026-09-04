@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ADDR,
   advCustomBlockAddr,
+  buildBankClearWrite,
   buildConfigWrite,
   buildDiscoveryRequest,
   buildReadRequest,
@@ -175,6 +176,53 @@ describe('message builders', () => {
     expect(buildConfigWrite(ADDR.maxBanksPcB, 0x1f)).toEqual(
       hex('f0 00 32 09 49 00 00 00 02 56 38 01 00 10 00 00 00 1f 52 00 f7')
     );
+  });
+
+  it('builds the bit-perfect bank-clear writes captured from the official app', () => {
+    // Footswitch D bank A removed: f0 00 32 09 41 05 00 00 02 41 0a 00 00 00 0a <93 zeros> 28 06 f7
+    expect(buildBankClearWrite(0, 3, 0)).toEqual([
+      0xf0,
+      0x00,
+      0x32,
+      0x09,
+      0x41,
+      0x05,
+      0x00,
+      0x00,
+      0x02,
+      0x41,
+      0x0a,
+      0x00,
+      0x00,
+      0x00,
+      0x0a,
+      ...new Array(93).fill(0),
+      0x28,
+      0x06,
+      0xf7,
+    ]);
+    // Footswitch B bank B removed: f0 00 32 09 41 05 00 00 02 4f 04 00 00 00 0a <93 zeros> 50 05 f7
+    expect(buildBankClearWrite(0, 1, 1)).toEqual([
+      0xf0,
+      0x00,
+      0x32,
+      0x09,
+      0x41,
+      0x05,
+      0x00,
+      0x00,
+      0x02,
+      0x4f,
+      0x04,
+      0x00,
+      0x00,
+      0x00,
+      0x0a,
+      ...new Array(93).fill(0),
+      0x50,
+      0x05,
+      0xf7,
+    ]);
   });
 
   it('builds the exact captured read requests', () => {
