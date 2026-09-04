@@ -25,6 +25,7 @@ const inputs = shallowRef<MIDIInput[]>([]);
 const outputs = shallowRef<MIDIOutput[]>([]);
 const error = ref('');
 const selectedDeviceId = ref<string>('');
+const selectedInputId = shallowRef<string | undefined>();
 const listeners = new Set<MidiListener>();
 
 function dispatch(data: Uint8Array, direction: MidiDirection, port: MIDIInput | MIDIOutput) {
@@ -36,13 +37,7 @@ function attachInputHandlers(): void {
     port.onmidimessage = (event) => {
       if (!event.data) return;
       // Only relay messages from the selected device's input.
-      // Until a device is selected, incoming messages are ignored.
-      if (selectedDeviceId.value) {
-        const device = duplexDevices.value.find((d) => d.id === selectedDeviceId.value);
-        if (!device || device.input.id !== port.id) return;
-      } else {
-        return;
-      }
+      if (port.id !== selectedInputId.value) return;
       dispatch(new Uint8Array(event.data), 'IN', port);
     };
   }
@@ -89,7 +84,15 @@ function send(outputId: string, data: Uint8Array): void {
 }
 
 function selectDevice(deviceId: string): void {
-  selectedDeviceId.value = deviceId;
+  if (!deviceId) {
+    selectedDeviceId.value = '';
+    selectedInputId.value = undefined;
+    return;
+  }
+  const device = duplexDevices.value.find((d) => d.id === deviceId);
+  if (!device) throw new Error('No MIDI device found');
+  selectedDeviceId.value = device.id;
+  selectedInputId.value = device.input.id;
 }
 
 function subscribe(listener: MidiListener): () => void {
@@ -105,21 +108,18 @@ function isSysEx(data: Uint8Array): boolean {
 
 async function discover(deviceId: string): Promise<DiscoveryResult> {
   await requestAccess();
-  const device = duplexDevices.value.find((d) => d.id === deviceId);
-  if (!device) throw new Error('No MIDI device found');
+  selectDevice(deviceId);
+  const output = duplexDevices.value.find((d) => d.id === deviceId)!.output;
   const request = buildDiscoveryRequest();
   return new Promise((resolve, reject) => {
-    const inputId = device.input.id;
-    const outputId = device.output.id;
-    const unsubscribe = subscribe((data, direction, port) => {
+    const unsubscribe = subscribe((data, direction) => {
       if (direction !== 'IN') return;
-      if (port.id !== inputId) return;
       if (!isSysEx(data)) return;
       unsubscribe();
       resolve({ request, response: data });
     });
     try {
-      send(outputId, request);
+      send(output.id, request);
     } catch (cause) {
       unsubscribe();
       reject(cause);

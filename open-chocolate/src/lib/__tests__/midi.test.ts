@@ -196,7 +196,9 @@ describe('useMidi', () => {
   it('routes incoming input messages to subscribers', async () => {
     const access = makeAccess();
     const input = makePort('in-1', 'Device');
+    const output = makePort('out-1', 'Device');
     access.inputs.set(input.id, input);
+    access.outputs.set(output.id, output);
     installNavigatorMock(vi.fn().mockResolvedValue(access));
 
     const useMidi = await loadUseMidi();
@@ -219,7 +221,9 @@ describe('useMidi', () => {
   it('ignores incoming messages until a device is selected', async () => {
     const access = makeAccess();
     const input = makePort('in-1', 'Device');
+    const output = makePort('out-1', 'Device');
     access.inputs.set(input.id, input);
+    access.outputs.set(output.id, output);
     installNavigatorMock(vi.fn().mockResolvedValue(access));
 
     const useMidi = await loadUseMidi();
@@ -237,9 +241,13 @@ describe('useMidi', () => {
   it('ignores incoming messages from inputs that are not the selected device', async () => {
     const access = makeAccess();
     const selectedInput = makePort('in-1', 'Selected');
+    const selectedOutput = makePort('out-1', 'Selected');
     const otherInput = makePort('in-2', 'Other');
+    const otherOutput = makePort('out-2', 'Other');
     access.inputs.set(selectedInput.id, selectedInput);
     access.inputs.set(otherInput.id, otherInput);
+    access.outputs.set(selectedOutput.id, selectedOutput);
+    access.outputs.set(otherOutput.id, otherOutput);
     installNavigatorMock(vi.fn().mockResolvedValue(access));
 
     const useMidi = await loadUseMidi();
@@ -262,7 +270,9 @@ describe('useMidi', () => {
   it('starts a fresh subscription for the selected input after selectDevice', async () => {
     const access = makeAccess();
     const input = makePort('in-1', 'Device');
+    const output = makePort('out-1', 'Device');
     access.inputs.set(input.id, input);
+    access.outputs.set(output.id, output);
     installNavigatorMock(vi.fn().mockResolvedValue(access));
 
     const useMidi = await loadUseMidi();
@@ -280,6 +290,17 @@ describe('useMidi', () => {
     expect(midi.selectedDeviceId.value).toBe('Device');
   });
 
+  it('rejects selectDevice when the device is unknown', async () => {
+    const access = makeAccess();
+    installNavigatorMock(vi.fn().mockResolvedValue(access));
+
+    const useMidi = await loadUseMidi();
+    const midi = useMidi();
+    await midi.requestAccess();
+
+    expect(() => midi.selectDevice('missing')).toThrow(/MIDI device/);
+  });
+
   it('returns the request and matching sysex response from discover', async () => {
     const access = makeAccess();
     const input = makePort('in-1', 'Device');
@@ -291,7 +312,6 @@ describe('useMidi', () => {
     const useMidi = await loadUseMidi();
     const midi = useMidi();
     await midi.requestAccess();
-    midi.selectDevice('Device');
 
     const response = new Uint8Array([0xf0, 0x02, 0x32, 0xf7]);
     const pending = midi.discover('Device');
