@@ -223,7 +223,7 @@ function importConfig(file: File) {
           <h2>Tips</h2>
         </div>
         <ul class="tips-list">
-          <li>Enable/disable BLE: hold and press B+C.</li>
+          <li>Enable/disable BLE: press and hold B+C.</li>
           <li>Factory reset: press and hold A+D until "000" is blinking.</li>
         </ul>
       </section>
