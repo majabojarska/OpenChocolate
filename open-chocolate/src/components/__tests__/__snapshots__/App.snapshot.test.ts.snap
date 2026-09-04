@@ -6,7 +6,7 @@ exports[`App snapshot > renders a connected device with a full configuration 1`]
     <div class="brand"><span class="brand-mark">🍫</span>
       <div>
         <h1>Open Chocolate</h1>
-        <p>M-Vave Chocolate Plus configuration</p>
+        <p>M-Vave Chocolate Plus configuration tool</p>
       </div>
     </div>
     <div class="topbar-actions">
@@ -47,12 +47,9 @@ exports[`App snapshot > renders a connected device with a full configuration 1`]
           <option value="12">Speaker (WIP)</option>
         </select></label><!-- ---- mode-specific sub-view ---- -->
       <div class="mode-view">
-        <p class="mode-info">Per-footswitch programmable MIDI codes (PC, CC, Note On/Off, SysEx). Variant 1 offers five sub-modes; variant 2 offers short tap + long press with up to 16 switchable groups.</p>
-        <p class="mode-info muted small">Variant 2 groups are switched with the virtual buttons E (A+B) and F (C+D); variant 1 cannot switch groups.</p><!-- Program Change A / B -->
+        <p class="mode-info">Per-footswitch programmable MIDI codes (PC, CC, Note On/Off, SysEx). Five sub-modes per footswitch: single tap, two-group switching, press-release, long press, short tap + long press.</p>
+        <p class="mode-info muted small">Groups are switched by the footswitch sub-mode (two-group switching or press-release); the virtual buttons E (A+B) and F (C+D) do not switch groups.</p><!-- Program Change A / B -->
         <!-- Advanced Custom -->
-        <div class="field"><span>Variant</span>
-          <div class="row gap radio-row"><label class="row small"><input type="radio" name="usrpage" checked="" value="0"> Mode 1 - five sub-modes </label><label class="row small"><input type="radio" name="usrpage" value="1"> Mode 2 - short tap + long press (up to 16 groups) </label></div>
-        </div>
         <div class="sw-tabs" role="tablist" aria-label="Footswitch"><button class="seg-btn sw-tab active" role="tab" aria-selected="true"> Footswitch A</button><button class="seg-btn sw-tab" role="tab" aria-selected="false"> Footswitch B</button><button class="seg-btn sw-tab" role="tab" aria-selected="false"> Footswitch C</button><button class="seg-btn sw-tab" role="tab" aria-selected="false"> Footswitch D</button></div>
         <section class="bank-editor">
           <div class="bank-head"><span class="bank-title">Footswitch A</span><select class="control narrow-select" value="1">
@@ -126,7 +123,7 @@ exports[`App snapshot > renders a detected device (auto-selected) with a Connect
     <div class="brand"><span class="brand-mark">🍫</span>
       <div>
         <h1>Open Chocolate</h1>
-        <p>M-Vave Chocolate Plus configuration</p>
+        <p>M-Vave Chocolate Plus configuration tool</p>
       </div>
     </div>
     <div class="topbar-actions">
@@ -175,7 +172,7 @@ exports[`App snapshot > renders the error banner when the scan fails 1`] = `
     <div class="brand"><span class="brand-mark">🍫</span>
       <div>
         <h1>Open Chocolate</h1>
-        <p>M-Vave Chocolate Plus configuration</p>
+        <p>M-Vave Chocolate Plus configuration tool</p>
       </div>
     </div>
     <div class="topbar-actions">
@@ -220,7 +217,7 @@ exports[`App snapshot > renders the shell with no devices after scan 1`] = `
     <div class="brand"><span class="brand-mark">🍫</span>
       <div>
         <h1>Open Chocolate</h1>
-        <p>M-Vave Chocolate Plus configuration</p>
+        <p>M-Vave Chocolate Plus configuration tool</p>
       </div>
     </div>
     <div class="topbar-actions">

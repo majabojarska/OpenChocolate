@@ -111,7 +111,6 @@ const onGroupCountChange = (count: number) => withBusy(() => comms.setMaxGroupCo
 const onMidiChannelChange = (ch0: number) => withBusy(() => comms.setMidiChannel(ch0));
 const onMaxBanksChange = (which: 0 | 1, count: number) =>
   withBusy(() => comms.setMaxBanks(which, count));
-const onUsrPageChange = (page: 0 | 1) => withBusy(() => comms.setUsrPage(page));
 const onFootswitchChange = (page: 0 | 1, index: 0 | 1 | 2 | 3, step: number) =>
   withBusy(() => comms.setFootswitchMode(page, index, step));
 const onFootswitchBankChange = (payload: {
@@ -203,7 +202,6 @@ function importConfig(file: File) {
         @group-count="onGroupCountChange"
         @midi-channel="onMidiChannelChange"
         @max-banks="({ which, count }) => onMaxBanksChange(which, count)"
-        @usr-page="onUsrPageChange"
         @footswitch="({ page, index, step }) => onFootswitchChange(page, index, step)"
         @footswitch-bank="onFootswitchBankChange"
         @custom-cc="({ bank, cc, latch }) => onCustomCcChange(bank, cc, latch)"

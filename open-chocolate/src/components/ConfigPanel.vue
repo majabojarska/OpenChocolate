@@ -26,7 +26,6 @@ const emit = defineEmits<{
   polarity: [enabled: boolean];
   'group-count': [count: number];
   'max-banks': [payload: { which: 0 | 1; count: number }];
-  'usr-page': [page: 0 | 1];
   footswitch: [payload: { page: 0 | 1; index: 0 | 1 | 2 | 3; step: number }];
   'footswitch-bank': [
     payload: {
@@ -148,7 +147,6 @@ function onImportFile(ev: Event) {
           v-else-if="view === 'advanced'"
           :config="config"
           :busy="busy"
-          @usr-page="$emit('usr-page', $event)"
           @footswitch="$emit('footswitch', $event)"
           @footswitch-bank="$emit('footswitch-bank', $event)"
         />

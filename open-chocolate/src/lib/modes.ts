@@ -67,9 +67,9 @@ export const MODE_META: Record<number, ModeMeta> = {
   },
   0x03: {
     view: 'advanced',
-    info: 'Per-footswitch programmable MIDI codes (PC, CC, Note On/Off, SysEx). Variant 1 offers five sub-modes; variant 2 offers short tap + long press with up to 16 switchable groups.',
+    info: 'Per-footswitch programmable MIDI codes (PC, CC, Note On/Off, SysEx). Five sub-modes per footswitch: single tap, two-group switching, press-release, long press, short tap + long press.',
     groups:
-      'Variant 2 groups are switched with the virtual buttons E (A+B) and F (C+D); variant 1 cannot switch groups.',
+      'Groups are switched by the footswitch sub-mode (two-group switching or press-release); the virtual buttons E (A+B) and F (C+D) do not switch groups.',
   },
   0x04: {
     view: 'none',

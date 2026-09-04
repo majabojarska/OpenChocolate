@@ -10,7 +10,6 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  'usr-page': [page: 0 | 1];
   footswitch: [payload: { page: 0 | 1; index: 0 | 1 | 2 | 3; step: number }];
   'footswitch-bank': [
     payload: {
@@ -38,7 +37,8 @@ const bank = computed(() => (banks.value ? banks.value[activeBank.value] : null)
 
 /** Bank B only exists for the two-bank modes, mirroring the official app. */
 const showBankB = computed(() => mode.value !== 0 && mode.value !== 3);
-const page = computed(() => (props.config.usrPage ?? 0) as 0 | 1);
+/** Only Mode 1 (variant page 0) is offered; the variant selector was removed. */
+const page = 0 as const;
 
 // Dropping back to a single-bank mode while Bank B is open would hide the
 // tab but keep showing Bank B contents, so snap back to Bank A.
@@ -91,7 +91,7 @@ function editSlot(slot: number) {
 function saveEdit() {
   if (!editing.value) return;
   emit('footswitch-bank', {
-    page: page.value,
+    page: page,
     index: selectedSwitch.value,
     bank: activeBank.value,
     slot: editing.value.slot,
@@ -106,7 +106,7 @@ function cancelEdit() {
 
 function removeSlot(slot: number) {
   emit('footswitch-bank', {
-    page: page.value,
+    page: page,
     index: selectedSwitch.value,
     bank: activeBank.value,
     slot,
@@ -116,7 +116,7 @@ function removeSlot(slot: number) {
 
 function removeAll() {
   emit('footswitch-bank', {
-    page: page.value,
+    page: page,
     index: selectedSwitch.value,
     bank: activeBank.value,
     slot: null,
@@ -132,34 +132,6 @@ function setDraft(ev: Event, field: 'channel' | 'type' | 'data1' | 'data2', mask
 </script>
 
 <template>
-  <div class="field">
-    <span>Variant</span>
-    <div class="row gap radio-row">
-      <label class="row small">
-        <input
-          type="radio"
-          name="usrpage"
-          value="0"
-          :checked="config.usrPage === 0"
-          :disabled="busy"
-          @change="$emit('usr-page', 0)"
-        />
-        Mode 1 - five sub-modes
-      </label>
-      <label class="row small">
-        <input
-          type="radio"
-          name="usrpage"
-          value="1"
-          :checked="config.usrPage === 1"
-          :disabled="busy"
-          @change="$emit('usr-page', 1)"
-        />
-        Mode 2 - short tap + long press (up to 16 groups)
-      </label>
-    </div>
-  </div>
-
   <div class="sw-tabs" role="tablist" aria-label="Footswitch">
     <button
       v-for="(name, i) in FOOTSWITCH_NAMES"
