@@ -154,7 +154,7 @@ describe('useMidi', () => {
     const secondOut = makePort('out-2', 'Second');
     access.inputs.set(second.id, second);
     access.outputs.set(secondOut.id, secondOut);
-    midi.refreshDevices();
+    await midi.refreshDevices();
     expect(midi.duplexDevices.value).toHaveLength(2);
   });
 
@@ -171,7 +171,7 @@ describe('useMidi', () => {
     await midi.requestAccess();
 
     const events: { data: Uint8Array; direction: string }[] = [];
-    midi.subscribe((data, direction) => events.push({ data, direction }));
+    midi.subscribe((event) => events.push({ data: event.data, direction: event.direction }));
 
     const message = new Uint8Array([0x90, 0x40, 0x7f]);
     midi.send('out-1', message);
@@ -207,7 +207,9 @@ describe('useMidi', () => {
     midi.selectDevice('Device');
 
     const received: { data: Uint8Array; direction: string }[] = [];
-    const unsubscribe = midi.subscribe((data, direction) => received.push({ data, direction }));
+    const unsubscribe = midi.subscribe((event) =>
+      received.push({ data: event.data, direction: event.direction })
+    );
     const bytes = new Uint8Array([0xf0, 0x01, 0xf7]);
     input.onmidimessage?.({ data: bytes });
 
@@ -231,7 +233,7 @@ describe('useMidi', () => {
     await midi.requestAccess();
 
     const received: { data: Uint8Array; direction: string }[] = [];
-    midi.subscribe((data, direction) => received.push({ data, direction }));
+    midi.subscribe((event) => received.push({ data: event.data, direction: event.direction }));
     input.onmidimessage?.({ data: new Uint8Array([0x90, 0x40, 0x7f]) });
 
     expect(received).toEqual([]);
@@ -256,7 +258,7 @@ describe('useMidi', () => {
     midi.selectDevice('Selected');
 
     const received: { data: Uint8Array; direction: string }[] = [];
-    midi.subscribe((data, direction) => received.push({ data, direction }));
+    midi.subscribe((event) => received.push({ data: event.data, direction: event.direction }));
 
     const stray = new Uint8Array([0x90, 0x40, 0x7f]);
     otherInput.onmidimessage?.({ data: stray });
@@ -280,7 +282,7 @@ describe('useMidi', () => {
     await midi.requestAccess();
 
     const received: { data: Uint8Array; direction: string }[] = [];
-    midi.subscribe((data, direction) => received.push({ data, direction }));
+    midi.subscribe((event) => received.push({ data: event.data, direction: event.direction }));
     midi.selectDevice('Device');
 
     const bytes = new Uint8Array([0xf0, 0x01, 0xf7]);

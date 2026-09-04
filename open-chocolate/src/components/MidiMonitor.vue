@@ -1,19 +1,18 @@
 <script setup lang="ts">
-interface MonitorEntry {
-  direction: 'IN' | 'OUT';
-  timestamp: string;
-  data: string;
-}
-
-const emit = defineEmits<{
-  clear: [];
-}>();
+import type { MonitorEntry } from '../lib/format';
+import type { MidiDirection } from '../lib';
 
 defineProps<{
   monitor: MonitorEntry[];
 }>();
 
-const directionLabel = (direction: 'IN' | 'OUT') => (direction === 'IN' ? 'RX' : 'TX');
+const emit = defineEmits<{
+  clear: [];
+}>();
+
+function directionLabel(direction: MidiDirection): string {
+  return direction === 'IN' ? 'RX' : 'TX';
+}
 </script>
 
 <template>
@@ -65,11 +64,11 @@ const directionLabel = (direction: 'IN' | 'OUT') => (direction === 'IN' ? 'RX' :
   color: var(--text-secondary, #666);
 }
 .monitor-table tr.incoming {
-  background-color: var(--outgoing-bg, #32cd32);
+  background-color: var(--incoming-bg, #1e90ff);
   color: white;
 }
 .monitor-table tr.outgoing {
-  background-color: var(--incoming-bg, #1e90ff);
+  background-color: var(--outgoing-bg, #32cd32);
   color: white;
 }
 .monitor-table code {

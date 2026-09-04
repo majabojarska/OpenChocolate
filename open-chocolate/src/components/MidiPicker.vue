@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue';
 import { useMidi } from '../lib';
 
-const props = defineProps<{
+defineProps<{
   selectedDeviceId: string;
 }>();
 
@@ -10,35 +9,7 @@ const emit = defineEmits<{
   'update:selectedDeviceId': [value: string];
 }>();
 
-const { duplexDevices, error, requestAccess } = useMidi();
-
-// Case insensitive
-// We want to auto-select the device if it's present.
-// Over BLE it presents as FootCtrlPlus, but over USB it presents as Sinco.
-// Configuration is only supported over USB, so prioritize Sinco if both are present.
-const knownDeviceNames = ['sinco', 'footctrlplus'];
-
-onMounted(() => {
-  requestAccess().catch(() => {
-    /* error is surfaced via the shared `error` ref */
-  });
-});
-
-watch(
-  [duplexDevices, () => props.selectedDeviceId],
-  ([devices, selectedId]) => {
-    if (selectedId) return;
-    const match = (() => {
-      for (const ref of knownDeviceNames) {
-        const found = devices.find((device) => device.name.toLowerCase().includes(ref));
-        if (found) return found;
-      }
-      return undefined;
-    })();
-    if (match) emit('update:selectedDeviceId', match.id);
-  },
-  { immediate: true }
-);
+const { duplexDevices, error } = useMidi();
 </script>
 
 <template>

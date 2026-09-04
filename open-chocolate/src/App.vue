@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue';
-import { useMidi } from './lib';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { findAutoSelectDevice, useMidi, type MidiEvent } from './lib';
+import { createMonitorEntry, type MonitorEntry } from './lib/format';
+import { toHex } from './lib/hex';
 import MidiMonitor from './components/MidiMonitor.vue';
 import MidiPicker from './components/MidiPicker.vue';
 
@@ -8,23 +10,36 @@ const status = ref('Ready');
 const response = ref('');
 const error = ref('');
 const selectedDeviceId = ref('');
-const monitor = ref<{ direction: 'IN' | 'OUT'; timestamp: string; data: string }[]>([]);
+const monitor = ref<MonitorEntry[]>([]);
 
 const midi = useMidi();
-const unsubscribeMidi = midi.subscribe((data, direction) => logMidi(direction, data));
+const unsubscribeMidi = midi.subscribe((event: MidiEvent) => {
+  monitor.value.unshift(createMonitorEntry(event.direction, event.data));
+});
 
+onMounted(() => {
+  midi.requestAccess().catch(() => {
+    /* The composable surfaces the reason on its shared `error` ref. */
+  });
+});
+
+// Once devices are known and the user hasn't picked one yet, auto-select the
+// known hardware (Sinco over USB, FootCtrlPlus over BLE).
+watch(
+  [midi.duplexDevices, selectedDeviceId],
+  ([devices, picked]) => {
+    if (picked) return;
+    const match = findAutoSelectDevice(devices);
+    if (match) selectedDeviceId.value = match.id;
+  },
+  { immediate: true }
+);
+
+// Keep the composable's selection in sync with the user's pick. The picker is
+// a dumb control; it only emits, this is the single source of truth.
 watch(selectedDeviceId, (id) => {
   if (id) midi.selectDevice(id);
 });
-
-const hex = (data: Uint8Array) =>
-  Array.from(data, (byte) => byte.toString(16).padStart(2, '0').toUpperCase()).join(' ');
-
-function logMidi(direction: 'IN' | 'OUT', data: Uint8Array) {
-  const now = new Date();
-  const isoTimestamp = now.toISOString();
-  monitor.value.unshift({ direction, timestamp: isoTimestamp, data: hex(data) });
-}
 
 function clearMonitor() {
   monitor.value = [];
@@ -35,7 +50,7 @@ async function discover() {
   error.value = '';
   try {
     const { response: bytes } = await midi.discover(selectedDeviceId.value);
-    response.value = hex(bytes);
+    response.value = toHex(bytes);
     status.value = `Received ${bytes.length} bytes`;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
