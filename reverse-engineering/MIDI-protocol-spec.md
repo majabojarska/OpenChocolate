@@ -1,397 +1,142 @@
-# M-Vave Chocolate Plus USB MIDI Protocol Specification
+# M-Vave Chocolate Plus MIDI protocol
 
-**Version**: 1.0  
-**Date**: 2026-09-03  
-**Derived From**: 38 USB capture files analyzed
+This document describes only behavior observed in the supplied USB captures.
 
----
+## Transport
 
-## 1. Device Identification
+The device is USB MIDI over bulk transfer, using endpoint `0x04 OUT` for host
+commands. SysEx messages begin with `F0 00 32` and end with `F7`. USB MIDI
+packets carry three MIDI bytes; continuation packets use CIN `0x04` and the
+final packet uses CIN `0x07`.
 
-### USB VID/PID
-- **Vendor ID**: `4353` / Hex `0x1101` (Adomax Technology Co., Ltd.)
-- **Product ID**: `4b4d` / Hex `0x4B4D`
-- **Interface**: USB MIDI Device
-- **Protocol**: MIDI System Exclusive (SysEx) over USB Bulk transfers
+## Discovery
 
-### MIDI Manufacturer ID
-- **Prefix**: `0x00 0x32` (Adomax)
-- **SysEx Format**: `F0 00 32 ...` ending with `F7`
+Request:
 
----
-
-## 2. Core Message Types
-
-All messages use MIDI SysEx framing: `F0 ...` `F7`
-
-### Message Length Categories
-
-| Message Type | Length | Use Case |
-|-------------|--------|----------|
-| DISCOVERY | 10 bytes | Initial device detection |
-| CONNECT | 17 bytes | Device discovery/handshake |
-| OPEN | 20 bytes | Establish connection |
-| CONFIG | 13 bytes | Standard configuration |
-| ACKNOWLEDGE | 13 bytes | Command acknowledgment |
-| BANK_SHORT | 111 bytes | Bank configuration (partial) |
-| BANK_LONG | 1190 bytes | Full bank configuration |
-
----
-
-## 3. Device Connection Sequence
-
-### 3.1 Device Discovery
-**Purpose**: Identify device capabilities and establish initial contact
-
-```
+```text
 F0 00 32 45 00 00 00 40 7F F7
 ```
 
-| Byte | Value | Description |
-|------|-------|-------------|
-| 0 | F0 | SysEx start |
-| 1-2 | 00 32 | Manufacturer ID |
-| 3 | 45 | Discovery command |
-| 4-7 | 00 00 00 40 | Padding/Parameter |
-| 8 | 7F | Device target |
-| 9 | F7 | SysEx end |
+The supplied discovery capture also contains a 41-byte response beginning
+`F0 00 32 45 58 01 00 00 23`; its remaining fields are not yet identified.
 
-### 3.2 Open Device
-**Purpose**: Open communication with device
+## Open/handshake
 
+Open traffic uses command `0D`, subcommand `41`, and a 20-byte record. The
+capture contains multiple records with changing parameters, so the complete
+handshake is not a single fixed message.
+
+## Configuration commands
+
+UI configuration writes use a 21-byte command:
+
+```text
+F0 00 32 09 49 ss ss ss ss vv vv vv vv vv vv vv vv vv vv cc F7
 ```
-F0 00 32 0D 41 00 00 00 02 00 00 00 00 10 7E 00
-```
 
-| Byte | Value | Description |
-|------|-------|-------------|
-| 0 | F0 | SysEx start |
-| 1-2 | 00 32 | Manufacturer ID |
-| 3 | 0D | Open command |
-| 4 | 41 | Subcommand |
-| 5-9 | 00 00 00 02 00 | Padding/reserved |
-| 10 | 00 | Parameter |
-| 11-12 | 00 10 | Configuration |
-| 13 | 7E | Status/end flag |
-| 14 | 00 | Reserved |
-| 15 | F7 | SysEx end |
+The selector occupies bytes 9-12, the selected value is normally byte 18, and
+byte 19 is a validation/check byte. The checksum algorithm has not been
+established.
 
----
+Observed selectors and values include:
 
-## 4. Configuration Operations
+| Operation                    | Selector/value observed                                |
+| ---------------------------- | ------------------------------------------------------ |
+| Polarity disabled/enabled    | selector `5A 38 01 00`, value `00`/`01`                |
+| Maximum groups 1, 3, 5, 7, 8 | selector `57 38 01 00`, value `00`/`02`/`04`/`06`/`07` |
+| Program Change A/B           | selector `00 00 00 00`, value `00`/`01`                |
+| Manufacturer control         | value `04`                                             |
+| Touch-screen Android         | value `05`                                             |
+| Video                        | value `06`                                             |
+| Keyboard A/B                 | values `07`/`08`                                       |
+| Multimedia keyboard          | value `09`                                             |
+| Custom keyboard              | value `0A`                                             |
+| Mix key                      | value `0B`                                             |
+| Speaker                      | value `0C`                                             |
+| Advanced custom              | value `03`                                             |
 
-### 4.1 Standard Configuration Message (13 bytes)
-**All configuration operations use this format:**
+After configuration, the device commonly responds with this 12-byte
+acknowledgement:
 
-```
+```text
 F0 00 32 01 08 00 00 00 00 7F 01 F7
 ```
 
-| Byte | Value | Description |
-|------|-------|-------------|
-| 0 | F0 | SysEx start |
-| 1-2 | 00 32 | Manufacturer ID (Adomax) |
-| 3 | 01 | Command class: Device configuration |
-| 4 | 08 | Subcommand identifier |
-| 5-8 | 00 00 00 00 | Reserved/padding |
-| 9 | 7F | Device address |
-| 10 | 01-08 | Feature selector / value |
-| 11 | F7 | SysEx end |
+## Footswitch selection
 
-**Note**: Byte 10 varies based on operation type (see sections below).
+Footswitch mode commands use the same 21-byte `09 49` envelope with selectors
+including `5D 00 00 00`, `7E 03 00 00`, and `1F 07 00 00`. The value and final
+validation bytes vary by operation.
 
-### 4.2 Polarity Reversal
-**Enable Polarity Reversal:**
-```
-F0 00 32 01 08 00 00 00 00 7F 01 F7
-```
+## Bank transfers
 
-**Disable Polarity Reversal:**
-```
-F0 00 32 01 08 00 00 00 00 7F 00 F7
-```
+Bank edits are segmented transfers, not one monolithic message:
 
-| Byte 10 | Setting |
-|---------|---------|
-| 00 | Polarity Disabled |
-| 01 | Polarity Enabled |
+- remove-all uses a 111-byte `09 41 05` message;
+- add/configure operations send fourteen 1190-byte records followed by a
+  12-byte acknowledgement, with a final 56-byte record;
+- long-record indexes advance by `08`: `00, 08, ... 68`;
+- bank payload field meanings and the validation algorithm remain unresolved.
 
-### 4.3 Maximum Group Count
-Set maximum number of groups (1-8):
+No fixed four-footswitch offset mapping has been established from the captures.
 
-| Group Count | Message |
-|-------------|---------|
-| 1 group | `F0 00 32 01 08 00 00 00 00 7F 01 F7` |
-| 3 groups | `F0 00 32 01 08 00 00 00 00 7F 03 F7` |
-| 5 groups | `F0 00 32 01 08 00 00 00 00 7F 05 F7` |
-| 8 groups | `F0 00 32 01 08 00 00 00 00 7F 08 F7` |
+## Bit-perfect configuration examples
 
-**Byte 10** encodes the group count value.
+The following are complete host-to-device messages copied from the captures
+(spaces are formatting only).
 
-### 4.4 MIDI Interface Selection
+### Polarity
 
-**TRS-MIDI Interface:**
-```
-F0 00 32 01 08 00 00 00 00 7F 01 F7
+```text
+Disabled  F0 00 32 09 49 00 00 00 02 5A 38 01 00 10 00 00 00 00 08 01 F7
+Enabled   F0 00 32 09 49 00 00 00 02 5A 38 01 00 10 00 00 00 01 06 F7
 ```
 
-**Expression Pedal Interface:**
-```
-F0 00 32 01 08 00 00 00 00 7F 01 F7
-```
+### MIDI interface
 
-**Note**: Both interface types use the standard message format; the interface type is indicated by additional parameters or state.
-
-### 4.5 Operating Mode Selection
-
-#### 4.5.1 Mode Type Byte Mappings
-
-| Mode | Byte 10 | Description |
-|------|---------|-------------|
-| Program Change A | 00 | MIDI Program Change, Bank A display |
-| Program Change B | 01 | MIDI Program Change, Bank B display |
-| Keyboard Mode | 02 | Computer keyboard control |
-| Advanced Custom | 03 | Advanced custom configuration |
-| Mix Key | 0B | Mixed key/editor mode |
-| Multimedia Keyboard | 09 | Media control keys |
-| Speaker Mode | 06 | Speaker output control |
-| Touch Screen Android | 0A | Android touchscreen |
-| Video Model | 08 | Video playback control |
-| Manufacturer Control | 04 | Manufacturer proprietary CC |
-| Custom Keyboard | 07 | Custom key mappings |
-
-#### 4.5.2 Footswitch Specific Modes
-
-Each footswitch (A, B, C, D) can be configured independently:
-
-| Footswitch | Mode | Message Variation |
-|------------|------|-------------------|
-| A | Single Step (Single Bank) | Standard 13-byte |
-| A | Single Step (Switch Between Two Banks) | Standard 13-byte |
-| A/B/C/D | Long Step | Standard 13-byte |
-| B | Step Short/Step Long | Standard 13-byte |
-| All | Press & Release | Standard 13-byte |
-
----
-
-## 5. Bank Configuration
-
-### 5.1 Bank Configuration Message Structure
-
-Bank configuration uses extended messages with additional parameters.
-
-#### 5.1.1 Bank Add (1190 bytes)
-```
-F0 00 32 09 41 40 00 00 02 5D [parameter data...] [checksum] F7
+```text
+TRS-MIDI          F0 00 32 09 49 00 00 00 02 01 00 00 00 10 00 00 00 01 70 03 F7
+Expression pedal  F0 00 32 09 49 00 00 00 02 01 00 00 00 10 00 00 00 00 72 03 F7
 ```
 
-| Segment | Description |
-|---------|-------------|
-| `F0 00 32 09 41` | Header: Command + Bank subtype |
-| `40` | Bank configuration type |
-| `00 00 02` | Reserved |
-| `5D...` | Parameter data (CC values, note numbers) |
-| `[checksum]` | Final validation byte |
-| `F7` | SysEx end |
+### Operating modes
 
-#### 5.1.2 Bank Configure (111 bytes)
-```
-F0 00 32 09 41 05 00 00 02 [data...] F7
-```
-
-| Segment | Description |
-|---------|-------------|
-| `F0 00 32 09 41` | Header: Command + Bank subtype |
-| `05` | Configuration operation |
-| `00 00 02` | Reserved |
-| `[data]` | Configuration parameters |
-| `F7` | SysEx end |
-
-#### 5.1.3 Bank Remove All (111 bytes)
-```
-F0 00 32 09 41 05 00 00 02 [clear data] F7
+```text
+Program Change A   F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 00 74 03 F7
+Program Change B   F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 01 72 03 F7
+Advanced Custom    F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 03 6E 03 F7
+Custom Mode        F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 02 70 03 F7
+Keyboard A         F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 07 66 03 F7
+Keyboard B         F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 08 64 03 F7
+Manufacturer       F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 04 6C 03 F7
+Touch Screen       F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 05 6A 03 F7
+Video              F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 06 68 03 F7
+Multimedia         F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 09 62 03 F7
+Custom Keyboard    F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0A 60 03 F7
+Mix Key            F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0B 5E 03 F7
+Speaker            F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0C 5C 03 F7
 ```
 
-Header same as configure, with clear-specific parameter data.
+### Maximum group count
 
-### 5.2 Bank Message Data Structure
-
-Bank configuration messages contain per-footswitch MIDI mapping data:
-
-| Field | Location in Message | Description |
-|-------|---------------------|-------------|
-| Footswitch A Mapping | Offset 9-18 | CC/Note assignment |
-| Footswitch B Mapping | Offset 19-28 | CC/Note assignment |
-| Footswitch C Mapping | Offset 29-38 | CC/Note assignment |
-| Footswitch D Mapping | Offset 39-48 | CC/Note assignment |
-
-### 5.3 Bank Management Operations
-
-| Operation | Message Type | Bank Designation |
-|-----------|--------------|------------------|
-| Add Bank | 1190 bytes | Bank A or B |
-| Configure Bank A | 111/1190 bytes | Bank A settings |
-| Configure Bank B | 111/1190 bytes | Bank B settings |
-| Remove All from Bank A | 111 bytes | Clear Bank A |
-| Remove All from Bank B | 111 bytes | Clear Bank B |
-| Send All Messages (Pin Press) | Dynamic | A then B alternating |
-
----
-
-## 6. Parameter Encodings
-
-### 6.1 MIDI Controller Numbers (CC)
-
-Common CC values used by the device:
-- **CC 6**: Data Entry MSB
-- **CC 10**: Pan position
-- **CC 22**: Sostenuto
-- **CC 24**: Sostenuto (alternative)
-- **CC 27**: Standard controller
-- **CC 59**: Standard controller
-- **CC 60**: Standard controller
-- **CC 72**: RPN LSB
-- **CC 76**: Standard controller
-- **CC 93**: Reserved/proprietary
-- **CC 127**: All Controllers Off
-
-### 6.2 MIDI Channel Messages
-
-- **Program Change**: PC message sent when footswitch pressed in PC mode
-- **Control Change**: CC message for controller modes
-- **Note On**: NoteOn message for keyboard modes
-- **Channel**: MIDI channels 1-16 (stored in higher bytes of message)
-
----
-
-## 7. Acknowledgment Messages
-
-### 7.1 Standard Acknowledge
-After receiving a configuration command, device responds:
-
-```
-F0 00 32 01 08 00 00 00 00 7F 01 F7
+```text
+1  F0 00 32 09 49 00 00 00 02 57 38 01 00 10 00 00 00 00 0E 01 F7
+3  F0 00 32 09 49 00 00 00 02 57 38 01 00 10 00 00 00 02 0A 01 F7
+5  F0 00 32 09 49 00 00 00 02 57 38 01 00 10 00 00 00 04 06 01 F7
+7  F0 00 32 09 49 00 00 00 02 57 38 01 00 10 00 00 00 06 02 01 F7
+8  F0 00 32 09 49 00 00 00 02 57 38 01 00 10 00 00 00 07 00 01 F7
 ```
 
-This 13-byte message confirms the device received and processed the configuration.
+### Captured footswitch and bank-clear operations
 
-### 7.2 Response Behavior
-
-| Host Command | Device Response |
-|--------------|-----------------|
-| Mode Selection | 13-byte acknowledge |
-| Polarity Setting | 13-byte acknowledge |
-| Group Count | 13-byte acknowledge |
-| Interface Type | 13-byte acknowledge |
-| Open Device | 20-byte response |
-| Bank Configuration | 111/1190-byte confirmation |
-
----
-
-## 8. Complete Message Reference
-
-### 8.1 Connection Messages
-
-| Operation | Message | Hex |
-|-----------|---------|-----|
-| Device Discovery | Connect to device | `F0 00 32 45 00 00 00 40 7F F7` |
-| Open Device | Establish connection | `F0 00 32 0D 41 00 00 00 02 00 00 00 00 10 7E 00` |
-
-### 8.2 Configuration Messages
-
-| Operation | Message Type | Key Bytes |
-|-----------|--------------|-----------|
-| Mode Selection (Any) | 13-byte | Byte 3: `01`, Byte 4: `08` |
-| Polarity Enable | 13-byte | Byte 10: `01` |
-| Polarity Disable | 13-byte | Byte 10: `00` |
-| Group Count (N) | 13-byte | Byte 10: `N` (1-8) |
-| Interface Select | 13-byte | Parameter ID varies |
-
-### 8.3 Bank Messages
-
-| Operation | Length | Structure Prefix |
-|-----------|--------|------------------|
-| Add Bank | 1190 bytes | `F0 00 32 09 41 40` |
-| Configure Bank | 111-1190 bytes | `F0 00 32 09 41 05` |
-| Remove Bank | 111 bytes | `F0 00 32 09 41 05` |
-
----
-
-## 9. Implementation Guide
-
-### 9.1 Connection Sequence
-1. Send **Device Discovery** message
-2. Send **Open Device** message
-3. Configure settings (polarity, group count, interface)
-4. Set modes for each footswitch
-5. Configure banks if needed
-
-### 9.2 Message Construction
-```python
-# Generic config message template
-msg = bytes([
-    0xF0, 0x00, 0x32, 0x01, 0x08,
-    0x00, 0x00, 0x00, 0x00,
-    0x7F, parameter_value,
-    0xF7
-])
+```text
+A long step       F0 00 32 09 49 00 00 00 02 5D 00 00 00 10 00 00 00 03 34 02 F7
+A single step     F0 00 32 09 49 00 00 00 02 5D 00 00 00 10 00 00 00 00 3A 02 F7
+A two-bank switch F0 00 32 09 49 00 00 00 02 5D 00 00 00 10 00 00 00 01 38 02 F7
+B short/long      F0 00 32 09 49 00 00 00 02 7E 03 00 00 10 00 00 00 04 6E 03 F7
+C long step       F0 00 32 09 49 00 00 00 02 1F 07 00 00 10 00 00 00 03 2A 01 F7
 ```
 
-### 9.3 Bank Message Template
-```python
-# Bank add message template (1190 bytes)
-msg = bytes([
-    0xF0, 0x00, 0x32, 0x09, 0x41, 0x40,  # Header
-    0x00, 0x00, 0x02, 0x5D,              # Fixed parameters
-    # ... 1170 bytes of CC/note data ...
-    checksum_byte,
-    0xF7
-])
-```
-
----
-
-## 10. Device Features Summary
-
-### 10.1 Physical Controls
-- 4 programmable footswitches (A, B, C, D)
-- USB-C connection for power/charging
-
-### 10.2 Configurable Parameters
-- **Operating Modes**: 11+ modes (Keyboard, Mixer, Control, Multimedia, etc.)
-- **Footswitch Modes**: Long step, Short step, Single step, Press & release
-- **Banks**: 2 banks (A, B) with full CC/note assignment
-- **Groups**: 1-8 groups (affects behavior)
-- **Interface**: TRS-MIDI, Expression Pedal
-- **Polarity**: Reversible (standard vs reverse)
-
-### 10.3 MIDI Capabilities
-- USB MIDI 1.0 compliant
-- SysEx device control
-- 128 Timbre storage via Bank A/B
-- 128 Timbre with group switching
-- Up to 2 banks of 32 timbres each
-
----
-
-## 11. Validation Evidence
-
-This specification is validated from:
-1. **USB Capture Analysis**: 113+ pcapng files with actual device communication
-2. **Android App Analysis**: Decompiled APK with UI-to-protocol mapping
-3. **Windows Native Analysis**: Flutter app strings confirming feature set
-
-All three sources show **consistent terminology, message structure, and parameter mappings**.
-
----
-
-## 12. References
-
-- MIDI 1.0 Detailed Specification
-- USB MIDI Class Specification v2.0
-- Device USB descriptors (from capture analysis)
-- SysEx message standards
-
----
-
-*This document represents the complete reverse-engineered specification for communicating with the M-Vave Chocolate Plus USB MIDI device. All message formats, parameters, and sequences have been validated through multiple independent analysis methods.*
+The bank-add/configure captures contain large state-dependent payloads and
+cannot be represented by a reusable example without reproducing the complete
+1190-byte records; their segment structure is specified above.
