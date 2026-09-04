@@ -207,7 +207,7 @@ function onImportFile(ev: Event) {
         </div>
 
         <label class="field row">
-          <span>Polarity reversal</span>
+          <span>Reverse polarity</span>
           <input
             type="checkbox"
             class="switch"

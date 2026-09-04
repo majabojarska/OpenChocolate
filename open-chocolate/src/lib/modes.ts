@@ -12,19 +12,19 @@ export type ModeView = 'pc' | 'custom' | 'advanced' | 'customKeyboard' | 'mixKey
 
 /** Operating mode identifiers (address 0 in the config blob). */
 export const MODES = [
-  { value: 0x00, label: 'Program Change A' },
-  { value: 0x01, label: 'Program Change B' },
-  { value: 0x02, label: 'Custom' },
-  { value: 0x03, label: 'Advanced Custom' },
-  { value: 0x04, label: 'Manufacturer Control' },
-  { value: 0x05, label: 'Touch Screen (Android)' },
-  { value: 0x06, label: 'Video Model' },
+  { value: 0x00, label: 'MIDI Program Change (PC)' },
+  { value: 0x01, label: 'MIDI Control Change (CC)' },
+  { value: 0x02, label: 'Custom (WIP)' },
+  { value: 0x03, label: 'Advanced Custom (WIP)' },
+  { value: 0x04, label: 'Manufacturer Control (WIP)' },
+  { value: 0x05, label: 'Touch Screen (Android) (WIP)' },
+  { value: 0x06, label: 'Video Control' },
   { value: 0x07, label: 'Keyboard A' },
   { value: 0x08, label: 'Keyboard B' },
-  { value: 0x09, label: 'Multimedia Keyboard' },
-  { value: 0x0a, label: 'Custom Keyboard' },
-  { value: 0x0b, label: 'Mix Key' },
-  { value: 0x0c, label: 'Speaker' },
+  { value: 0x09, label: 'Music Player Control' },
+  { value: 0x0a, label: 'Custom Keyboard (WIP)' },
+  { value: 0x0b, label: 'Mix Key (WIP)' },
+  { value: 0x0c, label: 'Speaker (WIP)' },
 ] as const;
 
 /** Per-footswitch step behaviours (the five Advanced Custom sub-modes). */
