@@ -1,0 +1,12 @@
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{js,ts,vue,json,css,scss,md,yml,yaml,html}"
+      run: npm run format
+      stage_fixed: true
+    lint:
+      glob: "*.{js,ts,vue}"
+      run: npm run lint
+    test:
+      run: npm run test
