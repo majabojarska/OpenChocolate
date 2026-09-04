@@ -4,6 +4,7 @@ import type { ChocolateDevice } from '../lib/device';
 defineProps<{
   devices: ChocolateDevice[];
   scanned: boolean;
+  scanning: boolean;
   selectedKey: string | null;
   connectedKey: string | null;
   connectingKey: string | null;
@@ -40,9 +41,11 @@ function statusLabel(status: ChocolateDevice['status']): string {
 
     <p v-if="devices.length === 0" class="muted empty">
       {{
-        scanned
-          ? 'No devices responded to the discovery request.'
-          : 'Run a scan to look for M-Vave Chocolate Plus devices on your MIDI ports.'
+        scanning
+          ? 'Scanning for M-Vave Chocolate Plus devices…'
+          : scanned
+            ? 'No devices responded to the discovery request.'
+            : 'Press Rescan to look for M-Vave Chocolate Plus devices on your MIDI ports.'
       }}
     </p>
 

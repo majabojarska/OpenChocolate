@@ -23,6 +23,13 @@ const connectingKey = computed(
 const monitorEntries = reactive<MonitorEntry[]>([]);
 const monitorLimit = 500;
 
+/** Hover hint for the Rescan button: it explains why it's disabled while connected. */
+const rescanHint = computed(() =>
+  connectedKey.value
+    ? 'Rescan is disabled while connected to a device — disconnect first to enable it.'
+    : 'Scan MIDI ports again for M-Vave Chocolate Plus devices.'
+);
+
 // The service owns all device state and hands out frozen snapshots on every
 // emit, so storing them directly is always safe.
 const config = ref(emptyConfig());
@@ -46,6 +53,7 @@ onMounted(() => {
     }
   });
   refreshState();
+  scan(); // scan automatically on startup
 });
 
 async function scan() {
@@ -140,9 +148,13 @@ function importConfig(file: File) {
         </div>
       </div>
       <div class="topbar-actions">
-        <button class="btn" :disabled="scanning" @click="scan">
-          {{ scanning ? 'Scanning…' : scanned ? 'Rescan devices' : 'Scan for devices' }}
-        </button>
+        <!-- A disabled button swallows hover, so the hint lives on a wrapper span
+             that stays interactive while the button itself is disabled. -->
+        <span class="rescan-tip" :class="{ disabled: scanning || hasDevice }" :title="rescanHint">
+          <button class="btn" :disabled="scanning || hasDevice" @click="scan">
+            {{ scanning ? 'Scanning…' : 'Rescan' }}
+          </button>
+        </span>
       </div>
     </header>
 
@@ -152,6 +164,7 @@ function importConfig(file: File) {
       <DevicePanel
         :devices="devices"
         :scanned="scanned"
+        :scanning="scanning"
         :selected-key="selectedKey"
         :connected-key="connectedKey"
         :connecting-key="connectingKey"

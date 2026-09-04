@@ -74,22 +74,12 @@ body {
 }
 
 /* ---------- layout ---------- */
+/* Stack all views full-width so neither the device list nor the
+   configuration panel competes for horizontal space. */
 .layout {
-  display: grid;
-  grid-template-columns: 340px 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 18px;
-  align-items: start;
-}
-
-.monitor-card {
-  grid-column: 1 / -1;
-  min-width: 0;
-}
-
-@media (max-width: 900px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ---------- cards ---------- */
@@ -126,13 +116,15 @@ body {
 }
 
 /* ---------- devices ---------- */
+/* Responsive grid: each device gets a comfortable card width, so names
+   only truncate on very narrow windows instead of a fixed 340px rail. */
 .device-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 8px;
 }
 
 .device-row {
@@ -362,6 +354,21 @@ input[type='checkbox'].switch:checked::after {
 .btn-small {
   padding: 5px 12px;
   font-size: 13px;
+}
+
+/* ---------- rescan button ---------- */
+/* Disabled buttons swallow pointer events, so the hover hint lives on a
+   wrapper span that stays hoverable while the button is disabled. */
+.rescan-tip {
+  display: inline-block;
+}
+
+.rescan-tip .btn:disabled {
+  pointer-events: none;
+}
+
+.rescan-tip.disabled {
+  cursor: not-allowed;
 }
 
 /* ---------- monitor ---------- */
