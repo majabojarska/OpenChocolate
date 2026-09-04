@@ -5,6 +5,11 @@
   ],
   "packageRules": [
     {
+      "description": "Pin typescript to major version 6",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7"
+    },
+    {
       "description": "Group all non-major npm dependency updates for the open-chocolate app into a single PR",
       "matchPaths": ["open-chocolate/**"],
       "matchDatasources": ["npm"],
