@@ -26,7 +26,7 @@ export interface ConfigurationResponse {
   payload: Uint8Array;
 }
 
-export function buildDiscoveryRequest(target = 0x7f): Uint8Array {
+export function buildDiscoveryRequest(): Uint8Array {
   return new Uint8Array([
     SYSEX_START,
     ...HEADER,
@@ -35,7 +35,7 @@ export function buildDiscoveryRequest(target = 0x7f): Uint8Array {
     0,
     0,
     0x40,
-    target,
+    0x7f,
     SYSEX_END,
   ]);
 }
