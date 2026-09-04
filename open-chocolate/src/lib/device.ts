@@ -44,8 +44,43 @@ const INIT_READ_RR = [
 ];
 
 export const READ_PAGE_COUNT = 24;
-/** Read-request addresses step by this stride (23646 / ~23.4). */
+/** Read-request addresses step by this stride (replayed verbatim, per capture). */
 export const READ_PAGE_STRIDE = 1009;
+/**
+ * Bytes of blob content carried by each configuration read response.
+ *
+ * The device does not return the chunk at the requested address: it streams
+ * the whole config blob in contiguous chunks of this size, starting at blob 0,
+ * and echoes the request address back as a (mostly ignored) id. So response k
+ * carries blob [k * READ_PAGE_CHUNK, (k+1) * READ_PAGE_CHUNK).
+ *
+ * Verified against open-device.pcapng: placing payloads at their request
+ * addresses makes overlapping pages contradict each other in 30 places, while
+ * contiguous placement has zero conflicts, a sane blob head and a consistent
+ * trailing system block. The trailing `0D 79` record is NOT a continuation of
+ * this stream: it re-reads the last `READ_TAIL_LEN` bytes of the blob
+ * (see CONFIG_TAIL_START) and is the authoritative copy of the live system
+ * block (the tail of the pages is stale).
+ */
+export const READ_PAGE_CHUNK = 1153;
+
+/** Payload length of the trailing `0D 79` read response (measured: 501). */
+export const READ_TAIL_LEN = 501;
+
+/** Size of the device's configuration blob (FC2Struct DATA_SIZE). */
+export const CONFIG_BLOB_SIZE = 23646;
+
+/**
+ * First blob address carried by the trailing `0D 79` record.
+ *
+ * The final read response streams a FRESH copy of the LAST bytes of the
+ * config blob (blob `CONFIG_TAIL_START`..`CONFIG_BLOB_SIZE`), byte-aligned to
+ * the blob end - so blob 23642 (polarity) lands at payload offset 497 =
+ * exactly its write address. The live trailing system block (bankMax/usrpage/
+ * polarity) is read from here; the same offsets inside the streamed pages
+ * hold a stale copy and must not be used.
+ */
+export const CONFIG_TAIL_START = CONFIG_BLOB_SIZE - READ_TAIL_LEN;
 
 /** How long to wait for a single read response before retrying (ms). */
 const READ_TIMEOUT_MS = 2500;
@@ -473,7 +508,9 @@ export class CommsService {
    * Captured init/read-back sequence:
    * 1. discovery request (device replies with the 45 58 response)
    * 2. 23 configuration reads (0D 41 -> 0D 49, 1173-byte records)
-   * 3. a 24th read with special marker -> 0D 79 record (521 bytes)
+   * 3. a 24th read with special marker -> 0D 79 record (521 bytes) carrying
+   *    the LAST `READ_TAIL_LEN` bytes of the config blob (see
+   *    CONFIG_TAIL_START); the live trailing system block is read from it
    *
    * The official app then re-writes six live settings. Those writes mirror
    * the settings of the captured session; they are intentionally not sent
@@ -538,7 +575,12 @@ export class CommsService {
     if (index === 0 && payload.length > 2) {
       // Page 0 begins the config blob: [mode, trs, channel, custom-mode data...]
       device.config.mode = payload[0];
-      if (payload[1] === 0 || payload[1] === 1) device.config.midiInterface = payload[1];
+      // The device stores the TRS jack function as 0 (expression pedal) or 2
+      // (TRS-MIDI). Writes use 0/1 and the official app clamps the read byte
+      // to 0..1 (FC2Struct: trs = AddrU8(blob[1], 0, 1)), so normalise here.
+      const trs = payload[1];
+      if (trs === 0) device.config.midiInterface = 0;
+      else if (trs === 1 || trs === 2) device.config.midiInterface = 1;
       if (payload[2] <= 15) device.config.midiChannel = payload[2];
       // Custom-mode banks: blob 3+2b = latch, 4+2b = CC value (per the
       // official app's FC2Struct: usr[b][0] = toggle, usr[b][1] = CC).
@@ -558,11 +600,22 @@ export class CommsService {
 
   /**
    * Read one blob byte from the raw read-back pages, or null while the page
-   * carrying it has not arrived yet.
+   * carrying it has not arrived yet. Pages are contiguous chunks of the blob
+   * (see READ_PAGE_CHUNK), keyed by the order they were requested in.
    */
   private blobByte(pages: Map<number, Uint8Array>, addr: number): number | null {
-    const pageId = Math.floor(addr / READ_PAGE_STRIDE);
-    const offset = addr - pageId * READ_PAGE_STRIDE;
+    // The trailing `0D 79` record carries a fresh copy of the last bytes of
+    // the config blob (see CONFIG_TAIL_START), so blob addresses in that
+    // range resolve into the final page, aligned to the blob end.
+    if (addr >= CONFIG_TAIL_START) {
+      const page = pages.get(READ_PAGE_COUNT - 1);
+      if (!page) return null;
+      const offset = addr - (CONFIG_BLOB_SIZE - page.length);
+      const value = page[offset];
+      return value === undefined ? null : value;
+    }
+    const pageId = Math.floor(addr / READ_PAGE_CHUNK);
+    const offset = addr - pageId * READ_PAGE_CHUNK;
     const page = pages.get(pageId);
     if (!page) return null;
     const value = page[offset];
@@ -581,7 +634,9 @@ export class CommsService {
     if (bankB !== null) device.config.maxBanksPcB = bankB + 1;
     if (groups !== null) device.config.maxGroupCount = groups + 1;
     if (page === 0 || page === 1) device.config.usrPage = page;
-    if (polarity === 0 || polarity === 1) device.config.reversePolarity = polarity === 1;
+    // The device reports the enabled state as 2, like the TRS field, so any
+    // nonzero byte means polarity reversal is on.
+    if (polarity !== null) device.config.reversePolarity = polarity !== 0;
   }
 
   /**

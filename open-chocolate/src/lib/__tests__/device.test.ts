@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CommsService, READ_PAGE_COUNT, type MonitorEntry } from '../device';
+import { CommsService, CONFIG_TAIL_START, READ_PAGE_COUNT, type MonitorEntry } from '../device';
 import type { MidiDevicePair, MidiMessageEvent, MidiTransport } from '../midi';
 import {
   ADDR,
@@ -123,6 +123,7 @@ class FakeTransport implements MidiTransport {
 
   protected payloadFor(pageId: number): number[] {
     if (pageId === 0) return PAGE_0_PAYLOAD;
+    if (pageId === 23 * 1009) return new Array<number>(501).fill(0); // final tail record
     return Array.from({ length: 16 }, (_, i) => (i + pageId) & 0x7f);
   }
 }
@@ -244,7 +245,9 @@ describe('CommsService', () => {
 
 /**
  * Transport whose read-back carries real-size pages with Advanced Custom
- * bank data and a populated trailing system block.
+ * bank data and a populated trailing system block in the final `0D 79`
+ * record (the device streams the last READ_TAIL_LEN bytes of the blob there,
+ * aligned to the blob end - see CONFIG_TAIL_START).
  */
 class AdvTransport extends FakeTransport {
   protected payloadFor(pageId: number): number[] {
@@ -262,21 +265,23 @@ class AdvTransport extends FakeTransport {
       return Array.from(p);
     }
     if (pageId === 1009) {
-      // Covers the rest of page 0's blocks (blob 1009..2161); switch D at
-      // 1344: mode 3 (long press), midiCodeB slot 0 = enabled PC(7) ch0.
+      // Response 1 = blob 1153..2305 (contiguous chunks, not request-aligned):
+      // switch D block at 1344: mode 3 (long press), midiCodeB slot 0 =
+      // enabled PC(7) ch0.
       const p = new Uint8Array(1153);
-      p[1344 - 1009] = 3;
-      p[1425 - 1009] = 1; // midiCodeB[0].enable (block+81)
-      p[1428 - 1009] = 7; // data1 = PC value
+      p[1344 - 1153] = 3;
+      p[1425 - 1153] = 1; // midiCodeB[0].enable (block+81)
+      p[1428 - 1153] = 7; // data1 = PC value
       return Array.from(p);
     }
     if (pageId === 23 * 1009) {
-      // Blob 23207..23704: system block ends at 23637+.
-      const p = new Uint8Array(500);
-      const off = ADDR.usrPage - 23 * 1009; // 433
-      p[off] = 0; // usrPage = variant 1
-      p[off + 2] = 1; // polarity = on
-      p[off - 3] = 3; // maxBanksPcA = 3+1 = 4
+      // Final 0D 79 record = blob 23145..23645: the live system block ends
+      // at the blob end (polarity at blob 23642 = payload offset 497).
+      const p = new Uint8Array(501);
+      const off = ADDR.polarity - CONFIG_TAIL_START; // 497
+      p[ADDR.maxBanksPcA - CONFIG_TAIL_START] = 3; // maxBanksPcA = 3+1 = 4
+      p[off - 2] = 0; // usrPage = variant 1
+      p[off] = 2; // polarity = on
       return Array.from(p);
     }
     return super.payloadFor(pageId);
@@ -363,5 +368,54 @@ describe('Advanced Custom banks', () => {
     expect(writes).toHaveLength(1);
     expect(writes[0]).toEqual(buildBankClearWrite(0, 0, 1));
     expect(comms.getConnected()?.config.footswitchBanks[0]?.[1].codes[3].enabled).toBe(false);
+  });
+});
+
+/**
+ * Transport that reproduces the captured read-back encoding exactly: the TRS
+ * field (blob 1) and the polarity field (blob 23642) both report their ON
+ * state as 2, and the polarity lives in the final `0D 79` tail record.
+ */
+class EncodingTransport extends FakeTransport {
+  constructor(
+    private trs: number,
+    private polarity: number
+  ) {
+    super();
+  }
+
+  protected payloadFor(pageId: number): number[] {
+    if (pageId === 0) {
+      const p = PAGE_0_PAYLOAD.slice(); // [3, 1, 5, ...]
+      p[1] = this.trs;
+      return p;
+    }
+    if (pageId === 23 * 1009) {
+      const p = new Uint8Array(501);
+      p[ADDR.polarity - CONFIG_TAIL_START] = this.polarity; // blob 23642
+      return Array.from(p);
+    }
+    return super.payloadFor(pageId);
+  }
+}
+
+describe('TRS jack and polarity read-back', () => {
+  it('decodes the device 0/2 encoding like the official app (4 captures)', async () => {
+    // The four open-device captures: trs_midi enabled/disabled x polarity
+    // reversal enabled/disabled. In each, the ON state reads back as 2.
+    const cases = [
+      { trs: 0, polarity: 0, midiInterface: 0, reversePolarity: false },
+      { trs: 0, polarity: 2, midiInterface: 0, reversePolarity: true },
+      { trs: 2, polarity: 0, midiInterface: 1, reversePolarity: false },
+      { trs: 2, polarity: 2, midiInterface: 1, reversePolarity: true },
+    ];
+    for (const c of cases) {
+      const comms = makeService(new EncodingTransport(c.trs, c.polarity));
+      await comms.scan();
+      await comms.connect(pair.key);
+      const cfg = comms.getConnected()?.config;
+      expect(cfg?.midiInterface).toBe(c.midiInterface);
+      expect(cfg?.reversePolarity).toBe(c.reversePolarity);
+    }
   });
 });

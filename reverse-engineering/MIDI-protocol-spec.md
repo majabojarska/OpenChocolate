@@ -24,7 +24,7 @@ writes):
 | Blob address | Field |
 | -----------: | ----- |
 | 0 | Operating mode (0..12) |
-| 1 | TRS jack function (0 = expression pedal, 1 = TRS-MIDI) |
+| 1 | TRS jack function (stored/read back: 0 = expression pedal, 2 = TRS-MIDI; config writes use 0/1) |
 | 2 | MIDI channel (0-based; UI displays +1) |
 | 3..12 | Custom mode, 5 banks: latch at `3+2b`, CC number at `4+2b` |
 | 13..92 | Custom mode tap codes: 16 x 5-byte MIDI codes |
@@ -35,7 +35,7 @@ writes):
 | 23639 | Max group count (value = count - 1) |
 | 23640 | Advanced Custom page (0/1) |
 | 23641 | Custom Keyboard page |
-| 23642 | Polarity reversal (0/1) |
+| 23642 | Polarity reversal (stored/read back: 0 = off, 2 = on; config writes use 0/1) |
 | 23643..23645 | Bank-MIDI, PC display, Mix Key page |
 
 ## Discovery
@@ -72,9 +72,18 @@ The captured initialization sequence in `open-device.pcapng` is:
    F0 00 32 0D 49 3F 00 00 02 ss ss ss ss 10 7E 00 00 [1153-byte payload] [ck:2] F7
    ```
 
-   The payload carries the blob content for the requested region.
+   The payload carries blob content as a contiguous stream: response k holds
+   blob `[k*1153, (k+1)*1153)` for k = 0..22, i.e. the device streams the
+   whole config area from address 0 in 1153-byte chunks instead of honouring
+   the request address (the echoed `ss` bytes identify the request, not the
+   returned region - see `protocol-addendum.md`).
 4. The 24th request uses marker `70 36` instead of `10 7E` and `rr` = 66;
-   the device answers with a 521-byte `0D 79` record (498-byte payload).
+   the device answers with a 521-byte `0D 79` record whose 501-byte payload
+   is a FRESH copy of the LAST 501 bytes of the blob (blob 23145..23645),
+   byte-aligned to the blob end. The live trailing system block is read from
+   here - e.g. blob 23642 (polarity) arrives at payload offset 497. The same
+   offsets inside the streamed pages hold a stale copy and must not be used
+   (verified with the four `open-device-has-*` captures).
 5. Send six 21-byte `09 49` configuration writes, each acknowledged with a
    12-byte `01 08` response (here: the Custom-mode CC numbers of the
    captured session and the Program-Change-B max-bank count).
@@ -127,7 +136,7 @@ The address occupies offsets 9-12 of a `09 49` write, encoded as
 | Address (bytes)              | Blob addr | Setting                              | Value at offset 17 |
 | ---------------------------- | --------: | ------------------------------------ | ------------------ |
 | `00 00 00 00`                | 0         | Operating mode                       | Mode identifier    |
-| `01 00 00 00`                | 1         | MIDI interface type                  | `00` expression pedal, `01` TRS-MIDI |
+| `01 00 00 00`                | 1         | MIDI interface type                  | `00` expression pedal, `01` TRS-MIDI (write; read-back uses `02` for TRS-MIDI) |
 | `02 00 00 00`                | 2         | MIDI channel                         | 0-based channel    |
 | `03 00 00 00`                | 3         | Custom bank 1 latch                  | `00` momentary, `01` latching |
 | `04 00 00 00`                | 4         | Custom bank 1 CC number              | CC number          |
@@ -139,7 +148,7 @@ The address occupies offsets 9-12 of a `09 49` write, encoded as
 | `55 38 01 00`                | 23637     | Max banks, Program Change A          | `count - 1`        |
 | `56 38 01 00`                | 23638     | Max banks, Program Change B          | `count - 1`        |
 | `57 38 01 00`                | 23639     | Max group count                      | `group count - 1`  |
-| `5A 38 01 00`                | 23642     | Polarity reversal                    | `00` disabled, `01` enabled |
+| `5A 38 01 00`                | 23642     | Polarity reversal                    | `00` disabled, `01` enabled (write; read-back uses `02` for enabled) |
 
 Footswitch D follows the same 417-byte block stride as A-C (93 + 3 x 417 =
 1344) and matches the decompiled struct layout, but the corresponding USB

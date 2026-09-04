@@ -23,11 +23,30 @@ little-endian: `[addr & 7f, (addr>>7) & 7f, (addr>>14) & 7f, 0]`.
     written only when the respective mode is active
   - `0x70c8` -> advanced-custom page, used as the page index into the
     footswitch-mode blocks
-  - the read requests sweep `addr = i * 1009`, i = 0..23 (23*1009 = 23207,
-    +1153-byte payloads cover the full blob)
-- Read stride 1009 with 1153-byte payloads: 23 pages * 1153 = 26519; the
-  final 0D 79 record (498-byte payload) overlaps the tail. The 24 requests
-  are replayed verbatim rather than recomputed.
+  - the read requests sweep `addr = i * 1009`, i = 0..23 (23*1009 = 23207)
+  - **the responses are NOT aligned to the request address.** The device
+    streams the blob in contiguous 1153-byte chunks starting at blob 0:
+    response k carries blob `[k*1153, (k+1)*1153)` and simply echoes the
+    request address back. Verified against `open-device.pcapng`: laying each
+    payload out at its request address makes the 144-byte overlaps between
+    consecutive pages contradict each other in 30 places (impossible for a
+    consistent device), while contiguous placement has zero conflicts, a sane
+    blob head and a consistent trailing system block. The 23 full pages cover
+    blob 0..26518 (past the 23646-byte config area). The 24 requests are
+    replayed verbatim rather than recomputed.
+  - **the trailing `0D 79` record is a fresh copy of the LAST 501 bytes of the
+    blob** (blob 23145..23645), byte-aligned to the blob end. The live
+    trailing system block (bankMax/usrpage/hidpage/polarity/...) is read from
+    here: for the four `open-device-has-*` captures (TRS-MIDI x polarity
+    reversal), the polarity byte sits at payload offset 497 = blob 23642 =
+    exactly its write address, and tracks the setting (0 = off, 2 = on) in
+    every capture. The same offsets inside the streamed pages (page 20 carries
+    blob 23060..24213) hold a STALE copy - its polarity byte never changes.
+    So the final record is NOT "beyond the config area": it is the config
+    tail and must be used for the system block.
+- Read stride 1009 with 1153-byte payloads: the payloads are contiguous
+  streamed chunks of the blob (response k = blob `[k*1153, (k+1)*1153)`), not
+  regions at the request addresses - see the note above.
 
 ## Footswitch A-D step modes = advCustom[0][n].mode
 
@@ -35,7 +54,9 @@ The FC2Struct layout (from `FC2Struct.setData`):
 
 ```
 0      mode (state)          1 byte
-1      trs (0 pedal, 1 midi) 1 byte
+1      trs (0 pedal, 2 midi) 1 byte   (read-backs store 2 for TRS-MIDI;
+                                      config writes use 0/1 and the Android
+                                      app clamps the read byte to 0..1)
 2      midi channel          1 byte
 3..12  usr[5][2]             custom mode: 5 banks x (latch @ 3+2b, cc @ 4+2b)
 13..92 midiCodeTap[16]       16 x 5-byte MIDI codes
@@ -48,11 +69,15 @@ The FC2Struct layout (from `FC2Struct.setData`):
 23639  bankMax[2]            max group count (value = count - 1)
 23640  usrpage               advanced custom page (0/1)
 23641  hidpage               custom keyboard page
-23642  polar                 polarity reversal (0/1)
+23642  polar                 polarity reversal (0 off / 2 on in read-backs;
+                             writes use 0/1)
 23643  bankMidi
 23644  pcdisp
 23645  mixpage
 ```
+
+These nine trailing bytes are carried by the `0D 79` final record (blob
+23145..23645, see above), not by the streamed page 20.
 
 Evidence for the usr order: `FC2Fragment` wires a latch checkbox to
 `usr[b][0]` and seeds the CC-selection adapter from `usr[b][1]`; the
@@ -103,7 +128,8 @@ and rr = 66. Response layout:
 F0 00 32 0D 49 3F 00 00 02 [addr:4] 10 7E 00 00 [1153-byte payload] [ck:2] F7
 ```
 
-`0D 79` final responses use `1B` instead of `3F` and carry 498 payload bytes.
+`0D 79` final responses use `1B` instead of `3F` and carry 501 payload bytes
+(the last 501 bytes of the blob).
 
 ## Android app notes (CubeSuite.apk)
 

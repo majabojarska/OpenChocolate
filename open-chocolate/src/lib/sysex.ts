@@ -64,7 +64,7 @@ export const CK_BULK_BANK_STEP = 0x50;
  */
 export const ADDR = {
   mode: 0x0000, // operating mode (0..12)
-  midiInterface: 0x0001, // 0 = expression pedal, 1 = TRS-MIDI
+  midiInterface: 0x0001, // 0 = expression pedal, 1 = TRS-MIDI (writes; the device stores/reads back 2)
   midiChannel: 0x0002, // MIDI channel, 0-based (UI shows +1)
   // Custom mode per-bank pairs live at 3..12: latch = 3+2b, cc = 4+2b
   // (official app's FC2Struct: usr[b][0] = toggle, usr[b][1] = CC value).
@@ -76,7 +76,7 @@ export const ADDR = {
   maxGroupCount: 23639, // value = group count - 1
   usrPage: 23640, // Advanced Custom page: 0 = variant 1, 1 = variant 2
   hidPage: 23641, // Custom Keyboard page
-  polarity: 23642, // 0 = off, 1 = on
+  polarity: 23642, // write 0 = off, 1 = on; read-back reports 2 = on (see CONFIG_TAIL_START)
 } as const;
 
 /**

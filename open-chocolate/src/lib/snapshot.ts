@@ -42,9 +42,9 @@ export function configFromSnapshot(snapshot: unknown): DeviceConfig {
   const cfg = (asRecord(snapshot)?.config ?? {}) as Record<string, unknown>;
   return {
     mode: numOrNull(cfg.mode),
-    midiInterface: numOrNull(cfg.midiInterface),
+    midiInterface: normalizeInterface(numOrNull(cfg.midiInterface)),
     midiChannel: numOrNull(cfg.midiChannel),
-    reversePolarity: Boolean(cfg.polarity),
+    reversePolarity: Boolean(cfg.reversePolarity ?? cfg.polarity),
     maxGroupCount: numOrNull(cfg.maxGroupCount),
     maxBanksPcA: numOrNull(cfg.maxBanksPcA),
     maxBanksPcB: numOrNull(cfg.maxBanksPcB),
@@ -121,4 +121,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function numOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** Clamp a stored TRS value (0 = expression pedal, otherwise TRS-MIDI). */
+function normalizeInterface(v: number | null): number | null {
+  return v === null ? null : v === 0 ? 0 : 1;
 }
