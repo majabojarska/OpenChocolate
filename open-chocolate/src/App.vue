@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { buildDiscoveryRequest } from './lib/sysex';
+import MidiMonitor from './components/MidiMonitor.vue';
 
 const status = ref('Ready');
 const response = ref('');
@@ -9,9 +10,19 @@ const inputs = ref<MIDIInput[]>([]);
 const outputs = ref<MIDIOutput[]>([]);
 const selectedInputId = ref('');
 const selectedOutputId = ref('');
+const monitor = ref<{ direction: 'IN' | 'OUT'; timestamp: string; data: string }[]>([]);
 let access: MIDIAccess | undefined;
 
 const hex = (data: Uint8Array) => Array.from(data, (byte) => byte.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+function logMidi(direction: 'IN' | 'OUT', data: Uint8Array) {
+  const now = new Date();
+  const isoTimestamp = now.toISOString();
+  monitor.value.unshift({ direction, timestamp: isoTimestamp, data: hex(data) });
+}
+
+function clearMonitor() {
+  monitor.value = [];
+}
 
 async function discover() {
   response.value = '';
@@ -26,12 +37,14 @@ async function discover() {
     input.onmidimessage = (event) => {
       if (!event.data) return;
       const bytes = new Uint8Array(event.data);
+      logMidi('IN', bytes);
       if (bytes[0] === 0xf0 && bytes[bytes.length - 1] === 0xf7) {
         response.value = hex(bytes);
         status.value = `Received ${bytes.length} bytes`;
       }
     };
     const request = buildDiscoveryRequest();
+    logMidi('OUT', request);
     output.send(request);
     status.value = `Sent discovery request on ${output.name ?? 'MIDI output'}; waiting for response`;
   } catch (cause) {
@@ -50,6 +63,11 @@ function refreshDevices() {
   if (!outputs.value.some((port) => port.id === selectedOutputId.value)) {
     selectedOutputId.value = outputs.value[0]?.id ?? '';
   }
+  inputs.value.forEach((port) => {
+    port.onmidimessage = (event) => {
+      if (event.data) logMidi('IN', new Uint8Array(event.data));
+    };
+  });
 }
 
 onMounted(async () => {
@@ -92,5 +110,6 @@ onMounted(async () => {
       <h2>SysEx response</h2>
       <code>{{ response }}</code>
     </section>
+    <MidiMonitor :monitor="monitor" @clear="clearMonitor" />
   </main>
 </template>
