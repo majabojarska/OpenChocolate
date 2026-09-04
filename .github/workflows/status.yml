@@ -11,6 +11,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./open-chocolate
     strategy:
       matrix:
         node-version: [24.x]
@@ -25,23 +28,18 @@ jobs:
           cache-dependency-path: open-chocolate/package-lock.json
 
       - name: Install dependencies
-        working-directory: ./open-chocolate
         run: npm ci
 
       - name: Run ESLint
-        working-directory: ./open-chocolate
         run: npm run lint:check
 
       - name: Check formatting
-        working-directory: ./open-chocolate
         run: npm run format:check
 
       - name: Run tests
-        working-directory: ./open-chocolate
         run: npm test
 
       - name: Build project
-        working-directory: ./open-chocolate
         run: npm run build
 
       - name: Upload build artifacts
