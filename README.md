@@ -1,4 +1,4 @@
-# OpenChocolate
+# OpenChocolate 🍫
 
 ## About
 

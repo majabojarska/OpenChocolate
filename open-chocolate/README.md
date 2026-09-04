@@ -1,4 +1,4 @@
-# open-chocolate
+# OpenChocolate 🍫
 
 FOSS, web-based, cross-platform configuration tool for the
 [M-Vave Chocolate Plus](https://www.sincoth.com/) MIDI footswitch
