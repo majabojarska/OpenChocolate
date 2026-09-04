@@ -49,7 +49,11 @@ export type DeviceStatus = 'detected' | 'connecting' | 'connected' | 'failed';
 export interface MonitorEntry {
   id: number;
   dir: 'RX' | 'TX';
-  /** Device name the message was sent to / received from. */
+  /**
+   * Device name the message was sent to / received from. Prefers the name
+   * the browser reports for the port; falls back to the scan-time label and
+   * finally a generic placeholder (raw port ids are never shown).
+   */
   device: string;
   /** performance.now() ms at send/receive time */
   timestamp: number;
@@ -230,8 +234,11 @@ export class CommsService {
     for (const cb of this.stateListeners) cb();
   }
 
-  private log(dir: 'RX' | 'TX', portId: string, bytes: Uint8Array): void {
-    const device = this.portLabels.get(portId) ?? portId;
+  private log(dir: 'RX' | 'TX', portId: string, bytes: Uint8Array, name?: string | null): void {
+    // Prefer the name the browser reports for the port the message arrived on:
+    // some backends re-enumerate a device under several internal ids (e.g.
+    // Chrome's Bluetooth MIDI), so id-keyed lookups can miss and leak raw ids.
+    const device = name ?? this.portLabels.get(portId) ?? 'Unknown MIDI port';
     const entry: MonitorEntry = {
       id: ++this.monitorId,
       dir,
@@ -350,7 +357,7 @@ export class CommsService {
     if (frames.length === 0) return;
     const deviceKey = this.deviceKeyForInput(ev.key);
     for (const frame of frames) {
-      this.log('RX', ev.key, Uint8Array.from(frame));
+      this.log('RX', ev.key, Uint8Array.from(frame), ev.name);
       const msg = parseMessage(frame);
       if (msg.kind === 'discovery-response' && this.discoveryResponders) {
         this.discoveryResponders.add(ev.key);

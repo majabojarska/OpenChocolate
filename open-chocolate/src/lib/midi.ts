@@ -17,6 +17,8 @@ export interface MidiDevicePair {
 export interface MidiMessageEvent {
   /** Key of the port the message arrived on. */
   key: string;
+  /** Port name reported by the browser at receive time, if any. */
+  name?: string | null;
   bytes: Uint8Array;
   /** Monotonic milliseconds at reception. */
   timestamp: number;
@@ -123,7 +125,7 @@ export class MidiAccess implements MidiTransport {
     const port = event.target as MIDIInput;
     const bytes = new Uint8Array(event.data ?? []);
     for (const cb of this.listeners) {
-      cb({ key: port.id, bytes, timestamp: event.timeStamp ?? performance.now() });
+      cb({ key: port.id, name: port.name, bytes, timestamp: event.timeStamp ?? performance.now() });
     }
   };
 

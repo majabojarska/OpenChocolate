@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CommsService, READ_PAGE_COUNT } from '../device';
+import { CommsService, READ_PAGE_COUNT, type MonitorEntry } from '../device';
 import type { MidiDevicePair, MidiMessageEvent, MidiTransport } from '../midi';
 import { ADDR, buildConfigWrite, decodeAddress, SYSEX_END, SYSEX_START } from '../sysex';
 
@@ -85,8 +85,14 @@ class FakeTransport implements MidiTransport {
   }
 
   private deliver(bytes: number[]): void {
+    this.deliverOn(pair.inputId ?? 'in-1', bytes, pair.name);
+  }
+
+  /** Deliver a message as if it arrived on an arbitrary port id/name. */
+  deliverOn(key: string, bytes: number[], name?: string | null): void {
     const event: MidiMessageEvent = {
-      key: pair.inputId ?? 'in-1',
+      key,
+      name: name ?? null,
       bytes: Uint8Array.from(bytes),
       timestamp: 0,
     };
@@ -125,6 +131,36 @@ describe('CommsService', () => {
     expect(comms.getDevices()).toHaveLength(1);
     expect(comms.getDevices()[0].status).toBe('detected');
     expect(comms.getConnected()).toBeNull();
+  });
+
+  it('labels RX traffic with the port name even when the port id is unknown', async () => {
+    const transport = new FakeTransport();
+    const comms = makeService(transport);
+    await comms.scan();
+
+    const entries: MonitorEntry[] = [];
+    comms.onMonitor((e) => entries.push(e));
+
+    // Chrome's Bluetooth MIDI can deliver on an opaque id (base64 blob) that
+    // never appeared during scan - the label must come from the port name.
+    const opaqueId = 'oTOsU1uUoSgvk1iUtf6SzyhIz/ltcQEr8S1S8nWnuWE=';
+    transport.deliverOn(opaqueId, discoveryResponse(), 'Chocolate Plus');
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].device).toBe('Chocolate Plus');
+    expect(entries[0].dir).toBe('RX');
+  });
+
+  it('falls back to a generic label instead of leaking a raw port id', async () => {
+    const transport = new FakeTransport();
+    const comms = makeService(transport);
+    await comms.scan();
+
+    const entries: MonitorEntry[] = [];
+    comms.onMonitor((e) => entries.push(e));
+    transport.deliverOn('opaque-unknown-id', discoveryResponse(), null);
+
+    expect(entries[0].device).toBe('Unknown MIDI port');
   });
 
   it('connects, decodes page 0 into the config and captures raw pages', async () => {
