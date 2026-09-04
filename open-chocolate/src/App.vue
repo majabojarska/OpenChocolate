@@ -212,6 +212,16 @@ function importConfig(file: File) {
       />
 
       <MonitorView :entries="monitorEntries" @clear="monitorEntries.splice(0)" />
+
+      <section class="card tips-card">
+        <div class="card-head">
+          <h2>Tips</h2>
+        </div>
+        <ul class="tips-list">
+          <li>Enable/disable BLE: hold and press B+C.</li>
+          <li>Factory reset: press and hold A+D until "000" is blinking.</li>
+        </ul>
+      </section>
     </main>
   </div>
 </template>
