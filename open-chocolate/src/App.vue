@@ -164,7 +164,7 @@ function importConfig(file: File) {
         <span class="brand-mark">🍫</span>
         <div>
           <h1>Open Chocolate</h1>
-          <p>M-Vave Chocolate Plus configuration</p>
+          <p>M-Vave Chocolate Plus configuration tool</p>
         </div>
       </div>
       <div class="topbar-actions">
