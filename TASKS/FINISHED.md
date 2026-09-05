@@ -2,6 +2,29 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Reading "Advanced Custom" bank contents with OCR (2026-09-05)
+
+### Harness
+- `read_bank(bank)` + CLI `choco.py read-bank [a|b]`: screenshot, crop
+  the bank region (A: (590,640)-(883,852), B +340px X), mask on
+  green-dominance (#33eab8 text on dark green), 6x upscale, OCR with
+  tesseract (psm 6), parse `[idx] ch TYPE d1 [d2]`.
+- Installed `pytesseract` + `eng.traineddata` (system had only `pol`);
+  `read_bank` auto-points TESSDATA_PREFIX at ~/.local/share/tessdata.
+- Added `EVENT_EDIT_BUTTONS` slot 11 (695,844) — each bank fits 11 rows.
+
+### Full flow (11 per bank)
+- Populated 11 distinct MIDI messages in bank A and 11 in bank B via the
+  harness, then OCR'd both. Rows detected 8-11/11 per bank.
+
+### Fidelity (honest)
+Tesseract on the small green-on-dark font reliably reads row structure
+(indices, message types) but exact data1/data2 digits are misread on
+~30-40% of rows (worse at bottom rows 9-11; some index/type quirks e.g.
+index `3` reused for row 8, `30` vs `90` digit confusion). `read-bank` is
+an overview, not ground truth — exact values should come from the
+`0D` register-read protocol decode instead. Documented in README.
+
 ## Task — TRS jack reverse-polarity (2026-09-05)
 
 ### Harness

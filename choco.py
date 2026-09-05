@@ -106,6 +106,11 @@ COORDS = {
     **TRS_JACK_MODES,
     # Polarity reversal toggle (same position on/off)
     "polarity_reversal": (248, 76),
+    # bank list regions for OCR (bank B shifted +340px X)
+    "bank_a_topleft": (590, 640),
+    "bank_a_botright": (883, 852),
+    "bank_b_topleft": (590 + 340, 640),
+    "bank_b_botright": (883 + 340, 852),
     # window close buttons (title bar)
     "close_footctrlplus": (1250, 17),
     "close_launchpad": (648, 13),
@@ -245,6 +250,7 @@ EVENT_EDIT_BUTTONS = [
     (695, 788),  # slot 8
     (695, 805),  # slot 9
     (695, 825),  # slot 10
+    (695, 844),  # slot 11
 ]
 
 # Text fields need the old value cleared before typing a new one.
@@ -826,6 +832,96 @@ def polarity_reversed() -> bool | None:
             pass
 
 
+def read_bank(bank: str = "a") -> list[dict] | None:
+    """OCR the MIDI message list shown in a bank (Advanced Custom mode).
+
+    Screenshots FootCtrlPlus, crops the bank list region (A: (590,640)..
+    (883,852); B shifted +340px X), preprocesses for the dark theme, and
+    OCRs with tesseract. Returns a list of parsed entries
+    ({index, channel, type, data1, data2}) or None if a row can't be
+    parsed / the window is closed.
+    """
+    import tempfile
+
+    wid = open_windows().get("footctrlplus")
+    if wid is None:
+        return None
+    if bank not in ("a", "b"):
+        print(f"read_bank: bank must be 'a' or 'b' (got {bank!r})", file=sys.stderr)
+        return None
+    x0, y0 = COORDS["bank_a_topleft" if bank == "a" else "bank_b_topleft"]
+    x1, y1 = COORDS["bank_a_botright" if bank == "a" else "bank_b_botright"]
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        png_path = tmp.name
+    try:
+        proc = _run(["import", "-window", wid, png_path])
+        if proc.returncode != 0:
+            return None
+        from PIL import Image, ImageChops
+
+        im = Image.open(png_path).convert("RGB").crop((x0, y0, x1, y1))
+        # The list text is bright green (#33eab8) on dark green; mask on
+        # green-dominance (like the polarity detector) and OCR the mask.
+        r, g, b = im.split()
+        hi = g.point(lambda p: 255 if p > 60 else 0)  # bright green
+        gr = ImageChops.subtract(g, r, scale=1, offset=0).point(
+            lambda p: 255 if p > 20 else 0
+        )  # g - r > 20
+        gb = ImageChops.subtract(g, b, scale=1, offset=0).point(
+            lambda p: 255 if p > 20 else 0
+        )  # g - b > 20
+        mask = ImageChops.multiply(hi, ImageChops.multiply(gr, gb))
+        mask = mask.resize((im.width * 6, im.height * 6), Image.LANCZOS)
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as t2:
+            ocr_path = t2.name
+        mask.save(ocr_path)
+        try:
+            import pytesseract
+
+            # Point tesseract at a user tessdata dir if the system one lacks
+            # eng (we install eng.traineddata into ~/.local/share/tessdata).
+            import os as _os
+
+            user_tess = _os.path.expanduser("~/.local/share/tessdata")
+            if _os.path.isdir(user_tess) and _os.path.isfile(
+                _os.path.join(user_tess, "eng.traineddata")
+            ):
+                _os.environ.setdefault("TESSDATA_PREFIX", user_tess)
+
+            text = pytesseract.image_to_string(ocr_path, config="--psm 6")
+        finally:
+            try:
+                os.unlink(ocr_path)
+            except OSError:
+                pass
+    finally:
+        try:
+            os.unlink(png_path)
+        except OSError:
+            pass
+
+    # parse lines like: [1] 3 Note ON 60 127, or [2] 1 PC 00 (PC data2 may
+    # OCR merged as a single trailing number). The leading `[` may be eaten.
+    entries = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        # [idx] chan TYPE d1 [d2]
+        m = re.match(r"\[?(\d+)\]?\s+(\d+)\s+(.+?)\s+(\d+)(?:\s+(\d+))?\s*$", line)
+        if not m:
+            continue
+        d2 = int(m.group(5)) if m.group(5) else 0
+        entries.append(
+            {
+                "index": int(m.group(1)),
+                "channel": int(m.group(2)),
+                "type": m.group(3).strip(),
+                "data1": int(m.group(4)),
+                "data2": d2,
+            }
+        )
+    return entries or None
+
+
 def close_editor() -> int:
     """Close FootCtrlPlus via the Escape key."""
     return cmd_close_editor()
@@ -987,6 +1083,13 @@ def main(argv=None) -> int:
         help="compute screen coords from wmctrl -lG instead of window-relative",
     )
 
+    p_read = sub.add_parser(
+        "read-bank",
+        help="OCR the MIDI message list in a bank (Advanced Custom mode) "
+        "via screenshot + tesseract",
+    )
+    p_read.add_argument("bank", nargs="?", default="a", choices=["a", "b"])
+
     p_remove = sub.add_parser("remove-all", help="click 'Remove all' on FootCtrlPlus")
     p_remove.add_argument(
         "--absolute",
@@ -1105,6 +1208,22 @@ def main(argv=None) -> int:
             )
             return 0 if state is not None else 1
         return toggle_polarity()
+    if args.command == "read-bank":
+        entries = read_bank(args.bank)
+        if entries is None:
+            print(
+                f"read-bank: no entries parsed from bank {args.bank.upper()} "
+                "(empty? window down? OCR failed?)",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"bank {args.bank.upper()} entries ({len(entries)}):")
+        for e in entries:
+            print(
+                f"  [{e['index']}] ch{e['channel']} {e['type']} "
+                f"{e['data1']} {e['data2']}"
+            )
+        return 0
     if args.command == "remove-all":
         return remove_all(args.absolute, bank=args.bank)
     if args.command == "add":

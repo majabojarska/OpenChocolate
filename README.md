@@ -66,6 +66,42 @@ The TRS jack polarity reversal toggle (`trs-jack-reverse-polarity
 [toggle|get]`) is read back from the window's pixels (#08251d off /
 #33eab8 on, tolerance ±24).
 
+## OCR: reading a bank's MIDI message list
+
+In `Advanced Custom` device mode each bank shows its configured MIDI
+messages as text rows. `read-bank` screenshots the FootCtrlPlus window and
+OCRs the bank region (A: (590,640)-(883,852), B shifted +340px X):
+
+```sh
+python3 choco.py read-bank a     # bank A (default)
+python3 choco.py read-bank b     # bank B
+```
+
+Output is one row per parsed entry:
+```
+bank A entries (2):
+  [1] ch3 Note ON 60 127
+  [2] ch1 PC 0 0
+```
+
+Requirements / notes:
+- **tesseract** + **pytesseract** (pip) + **Pillow**. `eng.traineddata`
+  must be present — this machine has it in `~/.local/share/tessdata`;
+  `read-bank` auto-points `TESSDATA_PREFIX` there if the system dir lacks
+  `eng`.
+- The list text is bright green (#33eab8) on dark green; `read-bank`
+  masks on green-dominance before OCR (grayscale alone can't separate it).
+The `[idx]` and `data2` of a `PC` row sometimes OCR imperfectly (merged
+`00`) — the parser tolerates a missing `[` and a single trailing number
+(data2 defaults to 0).
+
+**Fidelity caveat:** tesseract on this small green-on-dark font reliably
+detects the row structure (indices, message types) but exact data1/data2
+digits can be misread (~30-40% of rows; bottom rows 9-11 most affected).
+Treat `read-bank` as an overview; for exact values use the harness to
+re-read the configured messages, or decode the `0D` register-read protocol
+(bytes from the device) which is exact.
+
 ## Filling in the coordinates
 
 `COORDS` in `choco.py` is a dict of name → window-relative `(x, y)`.
