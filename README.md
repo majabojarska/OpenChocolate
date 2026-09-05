@@ -32,11 +32,19 @@ python3 choco.py state                  # focused window + allowed actions (--js
 python3 choco.py geometry [window]      # frame rect x y w h of a window (default: focused)
 python3 choco.py start-foot-ctrl-plus   # launcher button -> FootCtrlPlus + init sequence
 python3 choco.py switch A               # select foot switch A/B/C/D
+python3 choco.py footswitch-mode single_step_double_bank   # select a footswitch mode radio (per foot switch)
 python3 choco.py remove-all             # clear the mapped events list
 python3 choco.py add                    # append a new event to the list
 python3 choco.py click <name>           # generic: click any named coordinate
 ./demo.sh                               # canned sequence with 1s pauses
 ```
+
+Footswitch modes (radio group, selected per foot switch; the mode decides
+how many banks are configurable — 1 or 2): `single_step_single_bank`,
+`single_step_double_bank`, `press_down_release_double_bank`,
+`long_step_single_bank`, `step_short_or_long_double_bank`. Bank A events
+are shared across all modes; Bank B events are shared across all
+double-bank modes.
 
 ## Filling in the coordinates
 

@@ -45,6 +45,20 @@ WINDOW_TITLES = {
     "midi_edit":    re.compile(r"^CubeSuite$"),
 }
 
+# Footswitch mode radio buttons, one set per foot switch (radio group:
+# selecting a mode disables the others for that switch). x, y on the
+# FootCtrlPlus window; banks = number of configurable banks.
+# Bank reuse: bank A events are identical across modes; bank B events are
+# shared across all double-bank modes (and survive switching to a
+# single-bank mode and back).
+FOOTSWITCH_MODES = {
+    "single_step_single_bank":        (609, 221, 1),  # 1 bank
+    "single_step_double_bank":        (609, 256, 2),  # 2 banks
+    "press_down_release_double_bank": (609, 289, 2),  # 2 banks
+    "long_step_single_bank":          (609, 323, 1),  # 1 bank
+    "step_short_or_long_double_bank": (609, 356, 2),  # 2 banks
+}
+
 # Window-relative click coordinates (x, y) in pixels.
 # TODO: fill in real values (uncertain ones are still placeholders).
 COORDS = {
@@ -57,10 +71,10 @@ COORDS = {
     "foot_d":     (612, 163),  # TODO: Foot Switch D tab
     "remove_all": (800, 600),  # TODO: "Remove all" button
     "add":        (650, 600),  # TODO: "Add" button
-    # Toggle that makes both banks (A and B) visible; click after
-    # switching to a new foot switch.
+    # legacy alias for single_step_double_bank (same radio)
     "mode_single_step_two_banks": (609, 256),
 }
+COORDS.update({name: (x, y) for name, (x, y, _) in FOOTSWITCH_MODES.items()})
 
 # Which window each action clicks in.
 ACTION_WINDOW = {
@@ -69,6 +83,8 @@ ACTION_WINDOW = {
     "foot_c": "footctrlplus", "foot_d": "footctrlplus",
     "remove_all": "footctrlplus",
     "add": "footctrlplus",
+    # footswitch mode radio buttons + legacy alias
+    **{mode: "footctrlplus" for mode in FOOTSWITCH_MODES},
     "mode_single_step_two_banks": "footctrlplus",
     "close_editor": "footctrlplus",
     "open_edit": "footctrlplus",
@@ -86,6 +102,8 @@ DISPLAY = {
     "foot_c": "switch C", "foot_d": "switch D",
     "remove_all": "remove-all",
     "add": "add",
+    # footswitch mode radio buttons; display names use dashes
+    **{mode: mode.replace("_", "-") for mode in FOOTSWITCH_MODES},
     "mode_single_step_two_banks": "mode-single-step-two-banks",
     "close_editor": "close-editor",
     "open_edit": "open-edit",
@@ -568,6 +586,29 @@ def click_named(name: str, absolute: bool = False, bank: str = "a") -> int:
     return cmd_click(name, absolute, bank=bank)
 
 
+def set_footswitch_mode(mode: str) -> int:
+    """Select a footswitch mode radio button (see FOOTSWITCH_MODES).
+
+    The choice is per foot switch; selecting one mode disables the others
+    for that switch. Bank count follows the mode (1 or 2). Raises/returns 1
+    on an unknown mode.
+    """
+    if mode not in FOOTSWITCH_MODES:
+        print(
+            f"set_footswitch_mode: unknown mode {mode!r}; "
+            f"known: {', '.join(FOOTSWITCH_MODES)}",
+            file=sys.stderr,
+        )
+        return 1
+    wid = require(mode)  # mode name doubles as the gated action name
+    if wid is None:
+        return 1
+    x, y, banks = FOOTSWITCH_MODES[mode]
+    click(wid, x, y)
+    print(f"footswitch-mode: {mode} selected at ({x}, {y}) ({banks} bank(s))")
+    return 0
+
+
 def close_editor() -> int:
     """Close FootCtrlPlus via the Escape key."""
     return cmd_close_editor()
@@ -633,6 +674,12 @@ def main(argv=None) -> int:
         help="compute screen coords from wmctrl -lG instead of window-relative",
     )
     _add_bank_flag(p_switch)
+
+    p_fsm = sub.add_parser(
+        "footswitch-mode", aliases=["mode"],
+        help="select a footswitch mode radio button (per foot switch)",
+    )
+    p_fsm.add_argument("mode", choices=sorted(FOOTSWITCH_MODES))
 
     p_remove = sub.add_parser("remove-all", help="click 'Remove all' on FootCtrlPlus")
     p_remove.add_argument(
@@ -711,6 +758,8 @@ def main(argv=None) -> int:
         return click_named(args.name, args.absolute, bank=args.bank)
     if args.command == "switch":
         return switch(args.foot, args.absolute, bank=args.bank)
+    if args.command in ("footswitch-mode", "mode"):
+        return set_footswitch_mode(args.mode)
     if args.command == "remove-all":
         return remove_all(args.absolute, bank=args.bank)
     if args.command == "add":

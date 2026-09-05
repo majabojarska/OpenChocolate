@@ -47,6 +47,53 @@ F0 00 32 09 41 OP 00 00 SUB_HI SUB_LO OFFSET  PAYLOAD...  CHK1 CHK2 F7
 | `CHK1 CHK2` | 2 bytes before `F7`; data-dependent | see §5 |
 | `F7` | end of SysEx | constant |
 
+### 2a. Footswitch mode select (op `49`) — SOLVED (footswitch A)
+
+A single 21-byte SysEx changes the mode of the currently-selected foot
+switch; the pedal ACKs it like any other write. Capture: 5 modes, one
+message each (`captures/09_05/midi_20260905_215009.log`):
+
+```
+F0 00 32 09 49 00 00 00 02 5D 00 00 00 10 00 00 00 <MODE> <CHK1> <CHK2> F7
+ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17  18    19    20
+```
+
+| byte | value | meaning |
+|---|---|---|
+| `4` | `49` | new family: mode-select |
+| `8..9` | footswitch selector | see table below (NOT a constant sub-id) |
+| `17` | mode byte | see table below |
+| `18..19` | checksum | tracks the mode byte + selector (see §5) |
+
+Mode byte `17`:
+
+| value | mode | banks |
+|---|---|---|
+| `00` | `single_step_single_bank` | 1 |
+| `01` | `single_step_double_bank` | 2 |
+| `02` | `press_down_release_double_bank` | 2 |
+| `03` | `long_step_single_bank` | 1 |
+| `04` | `step_short_or_long_double_bank` | 2 |
+
+Footswitch selector (bytes `8..9`, from the full footswitch × mode sweep,
+`captures/09_05/midi_20260905_215254.log`; all 5 modes observed per switch):
+
+| bytes 8..9 | footswitch | observed CHK1..CHK2 (modes 0..4) |
+|---|---|---|
+| `02 5D` | A | `3A 02`, `38 02`, `36 02`, `34 02`, `32 02` |
+| `02 7E` | B | `76 03`, `74 03`, `72 03`, `70 03`, `6E 03` |
+| `02 1F` | C | `30 01`, `2E 01`, `2C 01`, `2A 01`, `28 01` |
+| `02 40` | D | `6A 02`, `68 02`, `66 02`, `64 02`, `62 02` |
+
+Within a footswitch, `CHK1` decrements by 2 per mode step; across switches
+it jumps (selector-dependent). The remaining non-constant byte is index
+`10` (`00`, `03`, `07`, `0A` — also per switch).
+
+**Resolved:** the footswitch IS encoded — bytes `8..9` select the foot
+switch (see table above), and the remaining non-constant byte `10` also
+varies per switch. The earlier "not known" footnote about the switch being
+implicit was answered by the full (footswitch × mode) sweep.
+
 Device → host ACK:
 
 ```

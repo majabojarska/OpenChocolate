@@ -44,7 +44,28 @@ _COLOR = {
 #     dir: 09 = host->device, 01 = device->host
 #     op:  02=write, 05=erase?, 40=config dump
 #   device ACK: F0 00 32 01 08 00 00 00 00 7F 01 F7
-SYSEX_OP = {0x02: "write", 0x05: "erase?", 0x40: "dump"}
+# Footswitch mode select (op 0x49), 21 bytes:
+#   F0 00 32 09 49 00 00 00 02 5D 00 00 00 10 00 00 00 <mode> <chk1> <chk2> F7
+SYSEX_OP = {0x02: "write", 0x05: "erase?", 0x40: "dump", 0x49: "mode"}
+
+# mode byte (index 17) <-> footswitch mode name, for op 0x49.
+MODE_BYTE_TO_NAME = {
+    0x00: "single_step_single_bank",
+    0x01: "single_step_double_bank",
+    0x02: "press_down_release_double_bank",
+    0x03: "long_step_single_bank",
+    0x04: "step_short_or_long_double_bank",
+}
+
+# Footswitch selector for op 0x49: bytes 8..10 (sub-id + continuation)
+# identify which foot switch the mode change targets. From the (foot x
+# mode) sweep capture midi_20260905_215254.log.
+MODE_SWITCH_BYTES = {
+    0x025D: "A",   # bytes 8..9 = 02 5D
+    0x027E: "B",   # 02 7E
+    0x021F: "C",   # 02 1F
+    0x0240: "D",   # 02 40
+}
 
 # Config blob: each event slot's entry occupies ~6 bytes starting at 0x0C.
 # The "data2" field of a CC message is encoded across bytes 0x0B/0x0C:
@@ -93,22 +114,34 @@ def decode_sysex(b: bytes) -> Dict[str, object]:
     if len(b) < 4 or b[0] != 0xF0 or b[-1] != 0xF7:
         return info
     info["dir_byte"] = f"{b[3]:02X}"
-    if b[3] == 0x09 and len(b) >= 11 and b[4] == 0x41:
+    if b[3] == 0x09 and len(b) >= 11:
         # host -> device configuration message
-        info["family"] = "41"
-        op = b[5]
-        info["op"] = f"{op:02X}"
-        info["op_name"] = SYSEX_OP.get(op, "?")
+        family = b[4]
+        info["family"] = f"{family:02X}"
         info["sub"] = f"{b[8]:02X}{b[9]:02X}"
-        info["off"] = f"{b[10]:02X}"
         info["chk"] = f"{b[-3]:02X}{b[-2]:02X}" if len(b) >= 5 else ""
-        # In the config blob region, bytes 0x0B/0x0C encode "data2" of the
-        # event in slot 1 of the currently-shown foot switch.
-        if len(b) > 0x0D:
-            lo, hi = b[0x0B], b[0x0C]
-            d2 = decode_d2(lo, hi)
-            if d2 is not None:
-                info["data2"] = d2
+        if family == 0x41:
+            op = b[5]
+            info["op"] = f"{op:02X}"
+            info["op_name"] = SYSEX_OP.get(op, "?")
+            info["off"] = f"{b[10]:02X}"
+            # In the config blob region, bytes 0x0B/0x0C encode "data2" of
+            # the event in slot 1 of the currently-shown foot switch.
+            if len(b) > 0x0D:
+                lo, hi = b[0x0B], b[0x0C]
+                d2 = decode_d2(lo, hi)
+                if d2 is not None:
+                    info["data2"] = d2
+        elif family == 0x49:
+            # Footswitch mode select: byte 17 encodes the mode; bytes 8..9
+            # identify the targeted foot switch.
+            info["op"] = "49"
+            info["op_name"] = "mode"
+            info["off"] = f"{b[10]:02X}"
+            sw = MODE_SWITCH_BYTES.get((b[8] << 8) | b[9], "?")
+            info["switch"] = sw
+            if len(b) >= 18:
+                info["mode"] = MODE_BYTE_TO_NAME.get(b[17], f"0x{b[17]:02X}")
     elif b[3] == 0x01:
         # device -> host
         if len(b) == 12 and b[4] == 0x08:
@@ -147,6 +180,10 @@ def render(port: str, kind: str, data: str, raw: bool = False) -> Optional[str]:
                 details.append(f"sub={info['sub']}")
                 details.append(f"off={info['off']}")
                 details.append(f"chk={info['chk']}")
+                if "mode" in info:
+                    details.append(f"mode={info['mode']}")
+                if "switch" in info:
+                    details.append(f"sw={info['switch']}")
                 if "data2" in info:
                     details.append(f"data2={info['data2']}")
                 if raw:
