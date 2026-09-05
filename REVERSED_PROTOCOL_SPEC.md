@@ -178,6 +178,25 @@ Mode byte `17`:
 Checksums (mode → `CHK1 CHK2`): `74 03`, `72 03`, `70 03`, `6E 03`, …,
 `5C 03` — `CHK1` decrements by 2 per mode step, `CHK2` stays `03`.
 
+### 2f. TRS jack mode select (op `49`, selector `02 01`) — SOLVED
+
+How the TRS socket reads (expression pedal vs raw MIDI), independent of
+device / footswitch mode; one at a time. Same 21-byte `49` frame, selector
+bytes `02 01`:
+
+```
+F0 00 32 09 49 00 00 00 02 01 00 00 00 10 00 00 00 <MODE> <CHK1> <CHK2> F7
+```
+
+Capture: both modes × 2 sweeps (`captures/09_05/midi_20260905_234141.log`).
+
+| mode byte `17` | mode | checksum |
+|---|---|---|
+| `00` | `expression_pedal` | `72 03` |
+| `01` | `trs_midi` | `70 03` |
+
+`trace.py` labels these `sw=trs` + the mode name.
+
 Device → host ACK:
 
 ```

@@ -70,6 +70,8 @@ MODE_SWITCH_BYTES = {
 # Device-mode selector for op 0x49: bytes 8..9 = 02 00 means the mode byte
 # (17) selects the DEVICE mode (not a footswitch mode).
 DEVICE_MODE_SELECTOR = 0x0200
+# TRS-jack-mode selector: bytes 8..9 = 02 01.
+TRS_JACK_SELECTOR = 0x0201
 
 # device mode byte (index 17) <-> device mode name (op 0x49, selector 02 00).
 # From the device-mode sweep capture midi_20260905_232844.log.
@@ -87,6 +89,13 @@ DEVICE_MODE_BYTE_TO_NAME = {
     0x0A: "custom_keyboard",
     0x0B: "mix",
     0x0C: "speaker",
+}
+
+# TRS jack mode byte (index 17) <-> name (op 0x49, selector 02 01).
+# From captures/09_05/midi_20260905_234141.log.
+TRS_JACK_MODE_BYTE_TO_NAME = {
+    0x00: "expression_pedal",
+    0x01: "trs_midi",
 }
 
 # Init/discovery handshake (register read protocol):
@@ -167,17 +176,24 @@ def decode_sysex(b: bytes) -> dict[str, object]:
                     info["data2"] = d2
         elif family == 0x49:
             # Mode select: byte 17 encodes the mode; bytes 8..9 select the
-            # target — a footswitch (02 5D-family) or the DEVICE mode
-            # (02 00).
+            # target — a footswitch (02 5D-family), the DEVICE mode (02 00),
+            # or the TRS jack mode (02 01).
             info["op"] = "49"
             info["op_name"] = "mode"
             info["off"] = f"{b[10]:02X}"
-            if (b[8] << 8) | b[9] == DEVICE_MODE_SELECTOR:
+            sel = (b[8] << 8) | b[9]
+            if sel == DEVICE_MODE_SELECTOR:
                 info["switch"] = "device"
                 if len(b) >= 18:
                     info["mode"] = DEVICE_MODE_BYTE_TO_NAME.get(b[17], f"0x{b[17]:02X}")
+            elif sel == TRS_JACK_SELECTOR:
+                info["switch"] = "trs"
+                if len(b) >= 18:
+                    info["mode"] = TRS_JACK_MODE_BYTE_TO_NAME.get(
+                        b[17], f"0x{b[17]:02X}"
+                    )
             else:
-                sw = MODE_SWITCH_BYTES.get((b[8] << 8) | b[9], "?")
+                sw = MODE_SWITCH_BYTES.get(sel, "?")
                 info["switch"] = sw
                 if len(b) >= 18:
                     info["mode"] = MODE_BYTE_TO_NAME.get(b[17], f"0x{b[17]:02X}")

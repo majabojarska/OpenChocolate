@@ -38,6 +38,7 @@ python3 choco.py close-launchpad        # close the CubeSuite launchpad (exits t
 python3 choco.py switch A               # select foot switch A/B/C/D
 python3 choco.py footswitch-mode single_step_double_bank   # select a footswitch mode radio (per foot switch)
 python3 choco.py device-mode advanced_custom             # select a device mode radio (one at a time)
+python3 choco.py trs-jack-mode expression_pedal          # select TRS jack mode (expression pedal / trs-midi)
 python3 choco.py remove-all             # clear the mapped events list
 python3 choco.py add                    # append a new event to the list
 python3 choco.py click <name>           # generic: click any named coordinate
@@ -57,6 +58,9 @@ distinct from footswitch mode): `program_change_a`, `program_change_b`,
 mode/bank config), `manufacturer_control`, `touch_screen_android`,
 `video_control`, `keyboard_a`, `keyboard_b`, `multimedia_keyboard`,
 `custom_keyboard`, `mix`, `speaker`.
+
+TRS jack modes (radio group, how the TRS socket reads; independent of
+device/footswitch mode; one at a time): `expression_pedal`, `trs_midi`.
 
 ## Filling in the coordinates
 

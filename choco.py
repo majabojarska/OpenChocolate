@@ -78,6 +78,13 @@ DEVICE_MODES = {
     "speaker": (38, 463),
 }
 
+# TRS jack mode radios — how the TRS socket reads (expression pedal vs raw
+# MIDI). Independent of device mode / footswitch mode; one at a time.
+TRS_JACK_MODES = {
+    "expression_pedal": (38, 151),
+    "trs_midi": (218, 151),
+}
+
 # Window-relative click coordinates (x, y) in pixels.
 # TODO: fill in real values (uncertain ones are still placeholders).
 COORDS = {
@@ -94,6 +101,8 @@ COORDS = {
     "mode_single_step_two_banks": (609, 256),
     # device mode radio buttons
     **DEVICE_MODES,
+    # TRS jack mode radio buttons
+    **TRS_JACK_MODES,
     # window close buttons (title bar)
     "close_footctrlplus": (1250, 17),
     "close_launchpad": (648, 13),
@@ -114,6 +123,8 @@ ACTION_WINDOW = {
     "mode_single_step_two_banks": "footctrlplus",
     # device mode radio buttons
     **dict.fromkeys(DEVICE_MODES, "footctrlplus"),
+    # TRS jack mode radio buttons
+    **dict.fromkeys(TRS_JACK_MODES, "footctrlplus"),
     "close_editor": "footctrlplus",
     "open_edit": "footctrlplus",
     "close_footctrlplus": "footctrlplus",
@@ -139,6 +150,8 @@ DISPLAY = {
     "mode_single_step_two_banks": "mode-single-step-two-banks",
     # device mode radio buttons; same dashed convention
     **{mode: mode.replace("_", "-") for mode in DEVICE_MODES},
+    # TRS jack mode radio buttons
+    **{mode: mode.replace("_", "-") for mode in TRS_JACK_MODES},
     "close_editor": "close-editor",
     "open_edit": "open-edit",
     "close_footctrlplus": "close-footctrlplus",
@@ -714,6 +727,28 @@ def set_device_mode(mode: str) -> int:
     return 0
 
 
+def set_trs_jack_mode(mode: str) -> int:
+    """Select a TRS jack mode radio button (see TRS_JACK_MODES).
+
+    TRS jack mode controls how the TRS socket reads (expression pedal vs
+    raw MIDI); independent of device / footswitch mode. One at a time.
+    """
+    if mode not in TRS_JACK_MODES:
+        print(
+            f"set_trs_jack_mode: unknown mode {mode!r}; "
+            f"known: {', '.join(TRS_JACK_MODES)}",
+            file=sys.stderr,
+        )
+        return 1
+    wid = require(mode)  # mode name doubles as the gated action name
+    if wid is None:
+        return 1
+    x, y = TRS_JACK_MODES[mode]
+    click(wid, x, y)
+    print(f"trs-jack-mode: {mode} selected at ({x}, {y})")
+    return 0
+
+
 def close_editor() -> int:
     """Close FootCtrlPlus via the Escape key."""
     return cmd_close_editor()
@@ -850,6 +885,13 @@ def main(argv=None) -> int:
     )
     p_dm.add_argument("mode", choices=sorted(DEVICE_MODES))
 
+    p_trs = sub.add_parser(
+        "trs-jack-mode",
+        help="select a TRS jack mode radio button (expression pedal vs raw "
+        "MIDI into the TRS socket)",
+    )
+    p_trs.add_argument("mode", choices=sorted(TRS_JACK_MODES))
+
     p_remove = sub.add_parser("remove-all", help="click 'Remove all' on FootCtrlPlus")
     p_remove.add_argument(
         "--absolute",
@@ -950,6 +992,8 @@ def main(argv=None) -> int:
         return set_footswitch_mode(args.mode)
     if args.command == "device-mode":
         return set_device_mode(args.mode)
+    if args.command == "trs-jack-mode":
+        return set_trs_jack_mode(args.mode)
     if args.command == "remove-all":
         return remove_all(args.absolute, bank=args.bank)
     if args.command == "add":

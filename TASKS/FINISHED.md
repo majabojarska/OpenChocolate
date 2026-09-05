@@ -2,6 +2,26 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — TRS jack mode controls (2026-09-05)
+
+### Harness
+- Added `TRS_JACK_MODES`: `expression_pedal` (38,151), `trs_midi`
+  (218,151) — a 2-radio group on FootCtrlPlus, independent of device /
+  footswitch mode. Wired into COORDS/ACTION_WINDOW/DISPLAY; CLI
+  `choco.py trs-jack-mode <mode>` + `set_trs_jack_mode()`, gated on
+  `footctrlplus`.
+- Operator-verified both modes (goal 2).
+
+### Protocol (goal 3) — capture `captures/09_05/midi_20260905_234141.log`
+
+TRS jack mode uses the same 21-byte `49` mode frame, selector bytes `02 01`
+(device mode uses `02 00`, footswitch modes `02 5D`-family):
+`F0 00 32 09 49 00 00 00 02 01 00 00 00 10 00 00 00 <MODE> <CHK1> <CHK2> F7`
+
+- Mode byte (17): `00`=expression_pedal, `01`=trs_midi.
+- Checksum: `72 03` / `70 03` (CHK1 -2 per step).
+- `trace.py` decodes as `sw=trs` + mode name; spec §2f added.
+
 ## Task — Device mode controls (2026-09-05)
 
 ### Harness
