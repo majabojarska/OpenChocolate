@@ -183,20 +183,27 @@ of the blob (first ~0x40 bytes, i.e. inside chunk `off=0x00`).
 
 ### 4.1 Data2 (CC value / note velocity) — SOLVED
 
-Stored in bytes `0x0B`/`0x0C` of the config region. Verified for d2 = 1..16
-(16/16 matches) plus d2 = 99 and 80 round-trips:
+Stored in the slot's region at blob offsets `0x0B`/`0x0C` (slot 1 of the
+currently-displayed foot switch/bank). Verified against a live sweep
+(`captures/09_05/midi_20260905_230150.log`) for data2 = 1, 3, 4, 5, 16,
+20, 80, 99 (8/8 matches):
 
 ```
-n   = d2 - 1
-lo  = (0x20, 0x40, 0x60, 0x00)[n & 3]        # 0x20 * ((n % 4) + 1), wraps
-hi  = 0x40 + (d2 >> 2)
+lo = (v & 3) << 5        # low 2 bits of the value -> lo byte's top 2 bits
+hi = 0x40 + (v >> 2)     # value // 4 -> hi byte's low 6 bits
+value = ((hi - 0x40) << 2) | (lo >> 5)
 ```
 
-| d2 | lo | hi | | d2 | lo | hi |
-|---|---|---|---|---|---|---|
-| 1 | 20 | 40 | | 9 | 20 | 42 |
-| 2 | 40 | 40 | | 10 | 40 | 42 |
-| 3 | 60 | 40 | | 16 | 00 | 44 |
+| d2 | blob[0x0B] (lo) | blob[0x0C] (hi) |
+|---|---|---|
+| 1 | 28 | 40 |
+| 3 | 68 | 40 |
+| 4 | 08 | 41 |
+| 5 | 28 | 41 |
+| 16 | 08 | 44 |
+| 20 | 08 | 45 |
+| 80 | 08 | 54 |
+| 99 | 68 | 58 |
 
 Inverse is `trace.decode_d2(lo, hi)`.
 

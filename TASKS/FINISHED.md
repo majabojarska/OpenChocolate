@@ -2,6 +2,23 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Python static analysis & formatting (ruff) (2026-09-05)
+
+- Added `pyproject.toml` with a ruff config (line-length 88, py39 target,
+  rule set: E/W/F/UP/B/C4/PL/DTZ/FURB, PLR/PLC/BLE001 ignored).
+- Linted + formatted all three modules (`choco.py`, `midi.py`, `trace.py`):
+  `ruff check` clean, `ruff format --check` clean. Mechanical modern
+  syntax via `--fix --unsafe-fixes` (Optional->X | None, deprecated-import
+  upgrades); remaining issues fixed by hand (`check=False` on subprocess,
+  tz-aware `astimezone()` datetimes, E501 line wraps, loop-var rename).
+- **Fixed a real latent bug surfaced by the lint pass:** `trace.decode_d2`
+  decoded values wrong for `lo==0x00` (off by one high-byte group).
+  Correct encode/decode derived and verified against the full 16-entry
+  table + round-trips (1..127). `REVERSED_PROTOCOL_SPEC.md` §4.1 updated
+  with the corrected formula.
+- Updated `AGENTS.md`: agents must run `ruff check` + `ruff format` before
+  finishing any `.py` edit.
+
 ## Task 4 — GUI start/close + discovery handshake (2026-09-05)
 
 ### Step 4 result: discovery SysEx RE'd

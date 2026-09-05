@@ -28,7 +28,7 @@ import selectors
 import shutil
 import subprocess
 import sys
-from typing import Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
 
 # -*- ANSI colors for direction-tagged lines (aggressive; override with --no-color).
 _COLOR = {
@@ -68,30 +68,31 @@ MODE_SWITCH_BYTES = {
 }
 
 # Init/discovery handshake (register read protocol):
-#   app -> dev read request: F0 00 32 0D 41 00 00 00 02 <a> <b> <c> 00 00 10 7E 00 00 <v> 00 F7
-#   dev -> app response:     F0 00 32 0D 49 3F 00 00 02 <same a.b.c> ... <payload> F7
+#   app -> dev read request: F0 00 32 0D 41 00 00 00 02 <a> <b> <c>
+#                             00 00 10 7E 00 00 <v> 00 F7
+#   dev -> app response:     F0 00 32 0D 49 3F 00 00 02 <same a.b.c> ...
 # The device also emits a constant discovery banner: F0 00 32 45 58 01 00 00 ...
 READ_REQUEST_FAM = 0x41  # after 0x0D: request
 RESPONSE_FAM = 0x49  # after 0x0D: response
 DISCOVERY_BANNER = 0x58  # after 0x45: device discovery banner
 
 # Config blob: each event slot's entry occupies ~6 bytes starting at 0x0C.
-# The "data2" field of a CC message is encoded across bytes 0x0B/0x0C:
-#   lo = [0x20, 0x40, 0x60, 0x00][(d2-1) & 3]   (0x20*((d2-1)%4 + 1), wraps)
-#   hi = 0x40 + (d2 >> 2)                        (counts d2//4)
-# (decoded empirically from a d2=1..16 sweep; matches 16/16)
-D2_LO_SEQ = (0x20, 0x40, 0x60, 0x00)
+# The "data2" field of a CC message is encoded across the slot region's
+# bytes (blob offsets 0x0B/0x0C for slot 1 of the displayed switch/bank):
+#   lo = (v & 3) << 5        # low 2 bits of v in the lo byte's top 2 bits
+#   hi = 0x40 + (v >> 2)     # v//4 in the hi byte's low 6 bits
+# (derived + verified against a live data2=1..99 sweep; matches 8/8)
 
 
-def decode_d2(lo: int, hi: int) -> Optional[int]:
-    """Inverse of the Data2 encoding; None if the bytes don't fit."""
+def decode_d2(lo: int, hi: int) -> int | None:
+    """Inverse of the Data2 encoding; None if the bytes don't fit.
+
+    lo's top 2 bits carry v & 3; hi's low 6 bits carry v >> 2.
+    """
     if hi < 0x40:
         return None
-    rem = D2_LO_SEQ.index(lo) if lo in D2_LO_SEQ else -1
-    if rem < 0:
-        return None
-    d2 = (hi - 0x40) * 4 + rem + 1
-    return d2 if 1 <= d2 <= 127 else None
+    v = ((hi - 0x40) << 2) | (lo >> 5)
+    return v if 1 <= v <= 127 else None
 
 
 _EVENT_RE = re.compile(r"^\s*(\d+:\d+)\s+(.*)$")
@@ -99,7 +100,7 @@ _HEADER_PORT_RE = re.compile(r"^# port: (\d+:\d+)\s+(.*)$")
 _SPLIT_RE = re.compile(r"\s{2,}")
 
 
-def parse_line(line: str) -> Optional[Tuple[str, str, str]]:
+def parse_line(line: str) -> tuple[str, str, str] | None:
     """Return (source port, event kind, data) for an aseqdump event line."""
     m = _EVENT_RE.match(line)
     if not m:
@@ -117,9 +118,9 @@ def _hexbytes(text: str) -> bytes:
     return bytes(int(x, 16) for x in text.split())
 
 
-def decode_sysex(b: bytes) -> Dict[str, object]:
+def decode_sysex(b: bytes) -> dict[str, object]:
     """Best-effort decode of a SysEx message."""
-    info: Dict[str, object] = {"len": len(b)}
+    info: dict[str, object] = {"len": len(b)}
     if len(b) < 4 or b[0] != 0xF0 or b[-1] != 0xF7:
         return info
     info["dir_byte"] = f"{b[3]:02X}"
@@ -134,10 +135,11 @@ def decode_sysex(b: bytes) -> Dict[str, object]:
             info["op"] = f"{op:02X}"
             info["op_name"] = SYSEX_OP.get(op, "?")
             info["off"] = f"{b[10]:02X}"
-            # In the config blob region, bytes 0x0B/0x0C encode "data2" of
-            # the event in slot 1 of the currently-shown foot switch.
-            if len(b) > 0x0D:
-                lo, hi = b[0x0B], b[0x0C]
+            # Slot-1 Data2 (CC value / velocity) sits at config-blob offsets
+            # 0x0B/0x0C, i.e. payload indices 0x0B/0x0C of the off=0x00 dump
+            # chunk (11-byte SysEx header + chunk payload).
+            if op == 0x40 and b[10] == 0x00 and len(b) >= 11 + 0x0D + 1:
+                lo, hi = b[11 + 0x0B], b[11 + 0x0C]
                 d2 = decode_d2(lo, hi)
                 if d2 is not None:
                     info["data2"] = d2
@@ -185,7 +187,7 @@ def _emit(
         print(f"[#{count:4d}] {direction} {shown}", flush=True)
 
 
-def render(port: str, kind: str, data: str, raw: bool = False) -> Optional[str]:
+def render(port: str, kind: str, data: str, raw: bool = False) -> str | None:
     """Produce one condensed line for an event, or None to skip."""
     if kind == "System exclusive":
         b = _hexbytes(data)
@@ -222,9 +224,11 @@ def render(port: str, kind: str, data: str, raw: bool = False) -> Optional[str]:
 _PORTS_RE = re.compile(r"^\s*(\d+:\d+)\s+(.*?)\s{2,}(.*)$")
 
 
-def _aseqdump_ports() -> List[Tuple[str, str, str]]:
+def _aseqdump_ports() -> list[tuple[str, str, str]]:
     """(port id, client name, port name) from `aseqdump -l`."""
-    proc = subprocess.run(["aseqdump", "-l"], capture_output=True, text=True)
+    proc = subprocess.run(
+        ["aseqdump", "-l"], capture_output=True, text=True, check=False
+    )
     if proc.returncode != 0:
         raise RuntimeError(
             f"aseqdump -l failed: {proc.stderr.strip() or proc.stdout.strip()}"
@@ -237,7 +241,7 @@ def _aseqdump_ports() -> List[Tuple[str, str, str]]:
     return ports
 
 
-def resolve_ports(patterns: List[str]) -> List[Tuple[str, str, str]]:
+def resolve_ports(patterns: list[str]) -> list[tuple[str, str, str]]:
     """Ports whose client name contains any pattern (case-insensitive)."""
     pats = [p.lower() for p in patterns if p]
     if not pats:
@@ -245,7 +249,7 @@ def resolve_ports(patterns: List[str]) -> List[Tuple[str, str, str]]:
     return [p for p in _aseqdump_ports() if any(pn in p[1].lower() for pn in pats)]
 
 
-def classify(name: str, app_pats: List[str], pedal_pats: List[str]) -> str:
+def classify(name: str, app_pats: list[str], pedal_pats: list[str]) -> str:
     n = name.lower()
     if any(p in n for p in app_pats):
         return "app->"
@@ -256,12 +260,12 @@ def classify(name: str, app_pats: List[str], pedal_pats: List[str]) -> str:
 
 # ------------------------------------------------------------ live tap -----
 def tap(
-    patterns: List[str],
+    patterns: list[str],
     *,
-    app_pats: List[str],
-    pedal_pats: List[str],
+    app_pats: list[str],
+    pedal_pats: list[str],
     raw: bool,
-    dir_filter: Optional[str],
+    dir_filter: str | None,
     color: bool = True,
 ) -> int:
     """Run aseqdump on the matching ports and decode events live.
@@ -282,7 +286,7 @@ def tap(
     stdbuf = shutil.which("stdbuf")
     procs = []
     try:
-        for pid, client, _ in ports:
+        for pid, _client, _ in ports:
             cmd = (["stdbuf", "-oL"] if stdbuf else []) + ["aseqdump", "-p", pid]
             p = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
@@ -337,7 +341,7 @@ def tap(
     return 0
 
 
-def _wait_children(procs, timeout: float) -> Tuple[List, List]:
+def _wait_children(procs, timeout: float) -> tuple[list, list]:
     import time as _t
 
     deadline = _t.time() + timeout
@@ -352,7 +356,7 @@ def _wait_children(procs, timeout: float) -> Tuple[List, List]:
 
 
 # ------------------------------------------------------------ offline -----
-def port_names_from_log(lines: Iterable[str]) -> Dict[str, str]:
+def port_names_from_log(lines: Iterable[str]) -> dict[str, str]:
     """Parse `# port:` header lines into {port id: client name}.
 
     Does not consume the stream (header lines are skipped by parse_line
@@ -368,7 +372,7 @@ def port_names_from_log(lines: Iterable[str]) -> Dict[str, str]:
     return mapping
 
 
-def live_port_names() -> Dict[str, str]:
+def live_port_names() -> dict[str, str]:
     """Fallback: resolve port ids via `aseqdump -l`."""
     try:
         return {pid: client for pid, client, _ in _aseqdump_ports()}
@@ -378,12 +382,12 @@ def live_port_names() -> Dict[str, str]:
 
 def process_lines(
     lines: Iterable[str],
-    names: Dict[str, str],
+    names: dict[str, str],
     *,
-    app_pats: List[str],
-    pedal_pats: List[str],
+    app_pats: list[str],
+    pedal_pats: list[str],
     raw: bool,
-    dir_filter: Optional[str],
+    dir_filter: str | None,
     color: bool = True,
 ) -> None:
     live = None
@@ -446,13 +450,13 @@ def main(argv=None) -> int:
 
     use_color = (not args.no_color) and sys.stdout.isatty()
 
-    kw = dict(
-        app_pats=[p.lower() for p in args.app],
-        pedal_pats=[p.lower() for p in args.pedal],
-        raw=args.raw,
-        dir_filter=args.dir,
-        color=use_color,
-    )
+    kw = {
+        "app_pats": [p.lower() for p in args.app],
+        "pedal_pats": [p.lower() for p in args.pedal],
+        "raw": args.raw,
+        "dir_filter": args.dir,
+        "color": use_color,
+    }
 
     # If the first positional is an existing file, treat it as a log to
     # analyze; otherwise every positional is a port pattern.

@@ -29,7 +29,6 @@ import sys
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Window stack, topmost first: a window steals focus from those below it.
@@ -39,10 +38,10 @@ STACK = ["midi_edit", "footctrlplus", "launchpad"]
 # Title regexes matched against the title field of `wmctrl -l`.
 WINDOW_TITLES = {
     # the launcher window: "CubeSuite V2.8.10 - [FootCtrlPlus,unknow]"
-    "launchpad":    re.compile(r"^CubeSuite V2\.8\.10"),
+    "launchpad": re.compile(r"^CubeSuite V2\.8\.10"),
     "footctrlplus": re.compile(r"^FootCtrlPlus$"),
     # the "midi code edit" dialog window (titled just "CubeSuite")
-    "midi_edit":    re.compile(r"^CubeSuite$"),
+    "midi_edit": re.compile(r"^CubeSuite$"),
 }
 
 # Footswitch mode radio buttons, one set per foot switch (radio group:
@@ -52,10 +51,10 @@ WINDOW_TITLES = {
 # shared across all double-bank modes (and survive switching to a
 # single-bank mode and back).
 FOOTSWITCH_MODES = {
-    "single_step_single_bank":        (609, 221, 1),  # 1 bank
-    "single_step_double_bank":        (609, 256, 2),  # 2 banks
+    "single_step_single_bank": (609, 221, 1),  # 1 bank
+    "single_step_double_bank": (609, 256, 2),  # 2 banks
     "press_down_release_double_bank": (609, 289, 2),  # 2 banks
-    "long_step_single_bank":          (609, 323, 1),  # 1 bank
+    "long_step_single_bank": (609, 323, 1),  # 1 bank
     "step_short_or_long_double_bank": (609, 356, 2),  # 2 banks
 }
 
@@ -65,29 +64,31 @@ COORDS = {
     # launchpad
     "start_foot_ctrl_plus": (280, 140),  # TODO: "FootCtrlPlus" launcher button
     # FootCtrlPlus editor
-    "foot_a":     (610, 132),  # TODO: Foot Switch A tab
-    "foot_b":     (830, 132),  # TODO: Foot Switch B tab
-    "foot_c":     (1050, 132),  # TODO: Foot Switch C tab
-    "foot_d":     (612, 163),  # TODO: Foot Switch D tab
+    "foot_a": (610, 132),  # TODO: Foot Switch A tab
+    "foot_b": (830, 132),  # TODO: Foot Switch B tab
+    "foot_c": (1050, 132),  # TODO: Foot Switch C tab
+    "foot_d": (612, 163),  # TODO: Foot Switch D tab
     "remove_all": (800, 600),  # TODO: "Remove all" button
-    "add":        (650, 600),  # TODO: "Add" button
+    "add": (650, 600),  # TODO: "Add" button
     # legacy alias for single_step_double_bank (same radio)
     "mode_single_step_two_banks": (609, 256),
     # window close buttons (title bar)
     "close_footctrlplus": (1250, 17),
-    "close_launchpad":    (648, 13),
+    "close_launchpad": (648, 13),
 }
 COORDS.update({name: (x, y) for name, (x, y, _) in FOOTSWITCH_MODES.items()})
 
 # Which window each action clicks in.
 ACTION_WINDOW = {
     "start_foot_ctrl_plus": "launchpad",
-    "foot_a": "footctrlplus", "foot_b": "footctrlplus",
-    "foot_c": "footctrlplus", "foot_d": "footctrlplus",
+    "foot_a": "footctrlplus",
+    "foot_b": "footctrlplus",
+    "foot_c": "footctrlplus",
+    "foot_d": "footctrlplus",
     "remove_all": "footctrlplus",
     "add": "footctrlplus",
     # footswitch mode radio buttons + legacy alias
-    **{mode: "footctrlplus" for mode in FOOTSWITCH_MODES},
+    **dict.fromkeys(FOOTSWITCH_MODES, "footctrlplus"),
     "mode_single_step_two_banks": "footctrlplus",
     "close_editor": "footctrlplus",
     "open_edit": "footctrlplus",
@@ -103,8 +104,10 @@ ACTION_WINDOW = {
 # User-facing command names for messages / state output.
 DISPLAY = {
     "start_foot_ctrl_plus": "start-foot-ctrl-plus",
-    "foot_a": "switch A", "foot_b": "switch B",
-    "foot_c": "switch C", "foot_d": "switch D",
+    "foot_a": "switch A",
+    "foot_b": "switch B",
+    "foot_c": "switch C",
+    "foot_d": "switch D",
     "remove_all": "remove-all",
     "add": "add",
     # footswitch mode radio buttons; display names use dashes
@@ -123,14 +126,16 @@ DISPLAY = {
 
 FOOT_SWITCHES = {"a": "foot_a", "b": "foot_b", "c": "foot_c", "d": "foot_d"}
 
+
 # ---------------------------------------------------------------------------
 # MIDI message model
 # ---------------------------------------------------------------------------
 class MidiType(Enum):
     """The kinds of MIDI message the editor can map to a button."""
-    PC = "pc"          # program change
-    CC = "cc"          # control change
-    NOTE_ON = "noteon" # MIDI note on
+
+    PC = "pc"  # program change
+    CC = "cc"  # control change
+    NOTE_ON = "noteon"  # MIDI note on
     NOTE_OFF = "noteoff"  # MIDI note off
 
 
@@ -153,12 +158,13 @@ class MidiMessage:
     data1:   program number (PC), controller number (CC), or note
     data2:   value (CC) / velocity (notes); unused for PC
     """
+
     channel: int = 1
     mtype: MidiType = MidiType.PC
     data1: int = 0
-    data2: Optional[int] = None
+    data2: int | None = None
 
-    def validate(self) -> Optional[str]:
+    def validate(self) -> str | None:
         """Return an error string, or None if the message is valid."""
         if not 1 <= self.channel <= 16:
             return f"channel must be 1-16 (got {self.channel})"
@@ -172,9 +178,9 @@ class MidiMessage:
 # "midi code edit" dialog (window titled "CubeSuite", 408x254): widget coords.
 MIDI_EDIT_COORDS = {
     "channel": (124, 74),
-    "type":    (132, 107),
-    "data1":   (159, 130),
-    "data2":   (250, 155),
+    "type": (132, 107),
+    "data1": (159, 130),
+    "data2": (250, 155),
     "confirm": (318, 186),
 }
 
@@ -215,24 +221,27 @@ BANK_SHIFT_X = 350
 BANK_SHIFTED_ACTIONS = {"remove_all", "add", "open_edit"}
 
 
-def banked_coord(action: str, x: int, y: int, bank: str = "a") -> Tuple[int, int]:
+def banked_coord(action: str, x: int, y: int, bank: str = "a") -> tuple[int, int]:
     """Apply the bank-B X shift to a FootCtrlPlus coordinate if applicable."""
-    if bank == "b" and ACTION_WINDOW.get(action) == "footctrlplus" \
-            and action in BANK_SHIFTED_ACTIONS:
+    if (
+        bank == "b"
+        and ACTION_WINDOW.get(action) == "footctrlplus"
+        and action in BANK_SHIFTED_ACTIONS
+    ):
         return x + BANK_SHIFT_X, y
     return x, y
 
 
 def _run(args) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True)
+    return subprocess.run(args, capture_output=True, text=True, check=False)
 
 
 # ---------------------------------------------------------------------------
 # Window discovery and state
 # ---------------------------------------------------------------------------
-def open_windows() -> Dict[str, Optional[str]]:
+def open_windows() -> dict[str, str | None]:
     """Map window name -> window id (or None if not open), one wmctrl call."""
-    ids: Dict[str, Optional[str]] = {name: None for name in STACK}
+    ids: dict[str, str | None] = dict.fromkeys(STACK)
     proc = _run(["wmctrl", "-l"])
     if proc.returncode != 0:
         print(f"wmctrl failed: {proc.stderr.strip()}", file=sys.stderr)
@@ -248,7 +257,7 @@ def open_windows() -> Dict[str, Optional[str]]:
     return ids
 
 
-def top_of_stack(windows: Dict[str, Optional[str]]) -> Optional[str]:
+def top_of_stack(windows: dict[str, str | None]) -> str | None:
     """Name of the topmost open window, or None if none are open."""
     for name in STACK:
         if windows[name]:
@@ -256,11 +265,11 @@ def top_of_stack(windows: Dict[str, Optional[str]]) -> Optional[str]:
     return None
 
 
-def allowed_actions(state: str) -> List[str]:
+def allowed_actions(state: str) -> list[str]:
     return [DISPLAY[a] for a in ACTION_WINDOW if ACTION_WINDOW[a] == state]
 
 
-def require(action: str) -> Optional[str]:
+def require(action: str) -> str | None:
     """If `action` is legal right now, return the window id to click in.
 
     Stack rule: an action is only legal when its window is the topmost
@@ -290,7 +299,7 @@ def require(action: str) -> Optional[str]:
     return wid
 
 
-def window_geometry(wid: str) -> Tuple[int, int, int, int]:
+def window_geometry(wid: str) -> tuple[int, int, int, int]:
     """Absolute frame origin and size (x, y, w, h) via `wmctrl -lG`."""
     proc = _run(["wmctrl", "-lG"])
     if proc.returncode != 0:
@@ -337,7 +346,9 @@ def click(wid: str, x: int, y: int, absolute: bool = False, clicks: int = 1) -> 
         move = _run(["xdotool", "mousemove", "--window", wid, str(x), str(y)])
 
     if clicks > 1:
-        press = _run(["xdotool", "click", "--repeat", str(clicks), "--delay", "120", "1"])
+        press = _run(
+            ["xdotool", "click", "--repeat", str(clicks), "--delay", "120", "1"]
+        )
     else:
         press = _run(["xdotool", "click", "1"])
     for cmd, proc in (("mousemove", move), ("click", press)):
@@ -353,7 +364,10 @@ def cmd_click(action: str, absolute: bool, bank: str = "a") -> int:
     x, y = COORDS[action]
     x, y = banked_coord(action, x, y, bank)
     click(wid, x, y, absolute=absolute)
-    print(f"clicked {DISPLAY[action]!r} at ({x}, {y})" + (f" [bank {bank}]" if bank != "a" else ""))
+    print(
+        f"clicked {DISPLAY[action]!r} at ({x}, {y})"
+        + (f" [bank {bank}]" if bank != "a" else "")
+    )
     return 0
 
 
@@ -374,8 +388,11 @@ def cmd_close_editor() -> int:
     # Wine ignores XSendEvent, so send the key to the focused window via
     # XTEST (plain `key`, no --window).
     key = _run(["xdotool", "key", "Escape"])
-    for cmd, proc in (("windowraise", raise_err), ("windowactivate", activate),
-                      ("key", key)):
+    for cmd, proc in (
+        ("windowraise", raise_err),
+        ("windowactivate", activate),
+        ("key", key),
+    ):
         if proc.returncode != 0:
             print(f"xdotool {cmd} failed: {proc.stderr.strip()}", file=sys.stderr)
 
@@ -419,7 +436,7 @@ def cmd_close_with_button(action: str) -> int:
 # ---------------------------------------------------------------------------
 # "midi code edit" dialog
 # ---------------------------------------------------------------------------
-def _dialog_click(widget: str, action: str, clicks: int = 1) -> Optional[str]:
+def _dialog_click(widget: str, action: str, clicks: int = 1) -> str | None:
     """Gate+click a dialog widget; return its window id or None.
 
     `clicks=2` for text fields: after the type-combo interaction, focus may
@@ -445,7 +462,7 @@ def open_edit(event_index: int = 0, bank: str = "a") -> int:
     """Click the Edit button of a mapped event (default: the first one)."""
     if not 0 <= event_index < len(EVENT_EDIT_BUTTONS):
         print(
-            f"open-edit: only event 1 (index 0) is defined so far",
+            "open-edit: only event 1 (index 0) is defined so far",
             file=sys.stderr,
         )
         return 1
@@ -456,8 +473,10 @@ def open_edit(event_index: int = 0, bank: str = "a") -> int:
     x, y = banked_coord("open_edit", x, y, bank)
     # Double-click: the Edit button opens the dialog on a double-click.
     click(wid, x, y, clicks=2)
-    print(f"open-edit: double-clicked edit button of event {event_index + 1} at ({x}, {y})"
-          + (f" [bank {bank}]" if bank != "a" else ""))
+    print(
+        f"open-edit: double-clicked edit button of event {event_index + 1} "
+        f"at ({x}, {y})" + (f" [bank {bank}]" if bank != "a" else "")
+    )
     return 0
 
 
@@ -507,7 +526,7 @@ def edit_set_data2(value: int) -> int:
     return 0
 
 
-def edit_confirm(mtype: Optional[MidiType] = None) -> int:
+def edit_confirm(mtype: MidiType | None = None) -> int:
     """Click Confirm (OK): closes the dialog and saves the entered values.
 
     `mtype` adjusts the OK position: for PC the Data2 field is hidden and
@@ -579,7 +598,7 @@ def cmd_state(json_out: bool) -> int:
     return 0 if state else 1
 
 
-def cmd_geometry(window: Optional[str]) -> int:
+def cmd_geometry(window: str | None) -> int:
     """Print the frame rect of one window (default: topmost open one)."""
     windows = open_windows()
     if window is None:
@@ -670,10 +689,18 @@ def start_cubesuite(timeout: float = 30.0) -> int:
         print("start-cubesuite: CubeSuite already running")
         return 0
     try:
-        proc = subprocess.Popen(
-            ["flatpak", "run", BOTTLES_APP, "-b", BOTTLES_ENV,
-             "-e", CUBESUITE_WIN_PATH],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        subprocess.Popen(
+            [
+                "flatpak",
+                "run",
+                BOTTLES_APP,
+                "-b",
+                BOTTLES_ENV,
+                "-e",
+                CUBESUITE_WIN_PATH,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     except FileNotFoundError:
         print("start-cubesuite: flatpak not found", file=sys.stderr)
@@ -684,10 +711,13 @@ def start_cubesuite(timeout: float = 30.0) -> int:
     deadline = time.time() + timeout
     while time.time() < deadline:
         if open_windows()["launchpad"] is not None:
-            print(f"start-cubesuite: launchpad window up ({time.time() - (deadline - timeout):.1f}s)")
+            elapsed = time.time() - (deadline - timeout)
+            print(f"start-cubesuite: launchpad window up ({elapsed:.1f}s)")
             return 0
         time.sleep(0.25)
-    print(f"start-cubesuite: timeout ({timeout}s) waiting for launchpad", file=sys.stderr)
+    print(
+        f"start-cubesuite: timeout ({timeout}s) waiting for launchpad", file=sys.stderr
+    )
     return 1
 
 
@@ -711,7 +741,9 @@ def set_data2(value: int) -> int:
 
 def _add_bank_flag(p) -> None:
     p.add_argument(
-        "--bank", choices=["a", "b"], default="a",
+        "--bank",
+        choices=["a", "b"],
+        default="a",
         help="foot switch bank: a (default) or b (+350px X on FootCtrlPlus)",
     )
 
@@ -725,21 +757,25 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_state = sub.add_parser(
-        "state", aliases=["status"],
+        "state",
+        aliases=["status"],
         help="report which window is focused and which actions are allowed",
     )
     p_state.add_argument("--json", action="store_true", help="machine-readable output")
 
     p_geom = sub.add_parser("geometry", help="print a window's frame rect (x y w h)")
     p_geom.add_argument(
-        "window", nargs="?", choices=STACK,
+        "window",
+        nargs="?",
+        choices=STACK,
         help="window to measure (default: topmost open one)",
     )
 
     p_click = sub.add_parser("click", help="left-click a named coordinate")
     p_click.add_argument("name", choices=sorted(COORDS))
     p_click.add_argument(
-        "--absolute", action="store_true",
+        "--absolute",
+        action="store_true",
         help="compute screen coords from wmctrl -lG instead of window-relative",
     )
     _add_bank_flag(p_click)
@@ -747,27 +783,31 @@ def main(argv=None) -> int:
     p_switch = sub.add_parser("switch", help="select a foot switch (A/B/C/D)")
     p_switch.add_argument("foot", type=str.lower, choices=list(FOOT_SWITCHES))
     p_switch.add_argument(
-        "--absolute", action="store_true",
+        "--absolute",
+        action="store_true",
         help="compute screen coords from wmctrl -lG instead of window-relative",
     )
     _add_bank_flag(p_switch)
 
     p_fsm = sub.add_parser(
-        "footswitch-mode", aliases=["mode"],
+        "footswitch-mode",
+        aliases=["mode"],
         help="select a footswitch mode radio button (per foot switch)",
     )
     p_fsm.add_argument("mode", choices=sorted(FOOTSWITCH_MODES))
 
     p_remove = sub.add_parser("remove-all", help="click 'Remove all' on FootCtrlPlus")
     p_remove.add_argument(
-        "--absolute", action="store_true",
+        "--absolute",
+        action="store_true",
         help="compute screen coords from wmctrl -lG instead of window-relative",
     )
     _add_bank_flag(p_remove)
 
     p_add = sub.add_parser("add", help="click 'Add' on FootCtrlPlus")
     p_add.add_argument(
-        "--absolute", action="store_true",
+        "--absolute",
+        action="store_true",
         help="compute screen coords from wmctrl -lG instead of window-relative",
     )
     _add_bank_flag(p_add)
@@ -777,7 +817,8 @@ def main(argv=None) -> int:
         help="click the launcher button on the launchpad (runs init sequence)",
     )
     p_start.add_argument(
-        "--absolute", action="store_true",
+        "--absolute",
+        action="store_true",
         help="compute screen coords from wmctrl -lG instead of window-relative",
     )
 
@@ -791,7 +832,8 @@ def main(argv=None) -> int:
     )
     sub.add_parser(
         "close-launchpad",
-        help="close the CubeSuite launchpad via its title-bar close button (exits the app)",
+        help="close the CubeSuite launchpad via its title-bar close button "
+        "(exits the app)",
     )
     sub.add_parser(
         "start-cubesuite",
@@ -822,7 +864,8 @@ def main(argv=None) -> int:
         help="click Confirm: save the dialog and close it",
     )
     p_confirm.add_argument(
-        "--type", choices=[t.value for t in MidiType],
+        "--type",
+        choices=[t.value for t in MidiType],
         help="message type; adjusts OK position (PC hides Data2, button 10px up)",
     )
 
@@ -833,7 +876,9 @@ def main(argv=None) -> int:
     p_sm.add_argument("type", choices=[t.value for t in MidiType])
     p_sm.add_argument("channel", type=int, help="MIDI channel 1-16")
     p_sm.add_argument("data1", type=int, help="program/controller/note number 0-127")
-    p_sm.add_argument("data2", type=int, nargs="?", help="value/velocity 0-127 (non-PC)")
+    p_sm.add_argument(
+        "data2", type=int, nargs="?", help="value/velocity 0-127 (non-PC)"
+    )
     p_sm.add_argument("--event", type=int, default=0, help="event index (default 0)")
     _add_bank_flag(p_sm)
 
@@ -876,8 +921,12 @@ def main(argv=None) -> int:
     if args.command == "confirm-edit":
         return edit_confirm(mtype=MidiType(args.type) if args.type else None)
     if args.command == "set-message":
-        msg = MidiMessage(channel=args.channel, mtype=MidiType(args.type),
-                          data1=args.data1, data2=args.data2)
+        msg = MidiMessage(
+            channel=args.channel,
+            mtype=MidiType(args.type),
+            data1=args.data1,
+            data2=args.data2,
+        )
         return set_message(msg, event_index=args.event, bank=args.bank)
 
     parser.error(f"unhandled command: {args.command}")

@@ -30,9 +30,9 @@ import subprocess
 import sys
 import threading
 import time
-from typing import List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
-EncodedPort = Tuple[str, str, str]  # (port id "N:M", client name, port name)
+EncodedPort = tuple[str, str, str]  # (port id "N:M", client name, port name)
 
 DEFAULT_PATTERNS = ("WINE midi driver",)
 
@@ -41,9 +41,11 @@ CAPTURES_DIR = "captures"  # recordings live under captures/<MM_DD>/
 _LINE_RE = re.compile(r"^\s*(\d+:\d+)\s+(.*)\s{2,}(.*)$")
 
 
-def list_ports() -> List[EncodedPort]:
+def list_ports() -> list[EncodedPort]:
     """Parse `aseqdump -l`: (port id, client name, port name) triples."""
-    proc = subprocess.run(["aseqdump", "-l"], capture_output=True, text=True)
+    proc = subprocess.run(
+        ["aseqdump", "-l"], capture_output=True, text=True, check=False
+    )
     if proc.returncode != 0:
         raise RuntimeError(
             f"aseqdump -l failed: {proc.stderr.strip() or proc.stdout.strip()}"
@@ -56,7 +58,7 @@ def list_ports() -> List[EncodedPort]:
     return ports
 
 
-def resolve_ports(patterns: Sequence[str]) -> List[EncodedPort]:
+def resolve_ports(patterns: Sequence[str]) -> list[EncodedPort]:
     """Ports whose client name contains any pattern (case-insensitive)."""
     pats = [p.lower() for p in patterns if p]
     if not pats:
@@ -64,7 +66,7 @@ def resolve_ports(patterns: Sequence[str]) -> List[EncodedPort]:
     return [port for port in list_ports() if any(p in port[1].lower() for p in pats)]
 
 
-def _pump(proc: subprocess.Popen, port: str, log, tee: bool, counts: List[int]) -> None:
+def _pump(proc: subprocess.Popen, port: str, log, tee: bool, counts: list[int]) -> None:
     """Forward aseqdump's lines to the log file and (optionally) console."""
     label = f"{port}"
     for line in proc.stdout:
@@ -78,7 +80,7 @@ def _pump(proc: subprocess.Popen, port: str, log, tee: bool, counts: List[int]) 
 
 def default_log_path() -> str:
     """Default capture path: captures/<MM_DD>/midi_<YYYYmmdd_HHMMSS>.log."""
-    now = dt.datetime.now()
+    now = dt.datetime.now().astimezone()
     return os.path.join(
         CAPTURES_DIR, now.strftime("%m_%d"), f"midi_{now:%Y%m%d_%H%M%S}.log"
     )
@@ -107,7 +109,7 @@ def _spawn_tap(
 @contextlib.contextmanager
 def record(
     *patterns: str,
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     tee: bool = True,
     wait_for: float = 0.0,
     rescan_after: float = 2.0,
@@ -138,8 +140,8 @@ def record(
     stdbuf = shutil.which("stdbuf")  # line-buffer aseqdump's piped stdout
     counts = [0]
 
-    procs: List[subprocess.Popen] = []
-    threads: List[threading.Thread] = []
+    procs: list[subprocess.Popen] = []
+    threads: list[threading.Thread] = []
 
     print(
         f"recording {len(ports)} port(s): "
@@ -150,14 +152,19 @@ def record(
         with open(log_file, "w") as log:
             # Header so downstream tools (trace.py) can map port ids ->
             # client names and derive direction per event.
-            log.write(f"# choco midi capture {dt.datetime.now():%Y-%m-%d %H:%M:%S}\n")
-            for port_id, client, port_name in ports:
-                log.write(f"# port: {port_id} {client} ({port_name})\n")
+            log.write(
+                f"# choco midi capture "
+                f"{dt.datetime.now().astimezone():%Y-%m-%d %H:%M:%S}\n"
+            )
+            log.writelines(
+                f"# port: {port_id} {client} ({port_name})\n"
+                for port_id, client, port_name in ports
+            )
             log.write(
                 "# cmd: " + " | ".join(f"aseqdump -p {p[0]}" for p in ports) + "\n"
             )
             log.write("--\n")
-            for port_id, client, port_name in ports:
+            for port_id, client, _port_name in ports:
                 _spawn_tap(port_id, client, log, tee, counts, stdbuf, procs, threads)
 
             if rescan_after:
