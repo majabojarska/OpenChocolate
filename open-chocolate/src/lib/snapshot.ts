@@ -6,8 +6,8 @@
  * fall back to null instead of throwing.
  */
 
-import type { DeviceConfig, FootswitchBank, MidiCode } from './device';
-import { CUSTOM_CC_BANKS, MIDI_CODE_SLOTS } from './sysex';
+import type { DeviceConfig, FootswitchBank, MidiCode } from './device.ts';
+import { CUSTOM_CC_BANKS, MIDI_CODE_SLOTS } from './sysex.ts';
 
 export interface CommsSnapshot {
   app: string;

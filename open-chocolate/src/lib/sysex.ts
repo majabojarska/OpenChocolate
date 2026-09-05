@@ -111,6 +111,15 @@ export const ADV_CUSTOM_BLOCK = 417;
 export const ADV_CUSTOM_PAGE_STRIDE = 4 * ADV_CUSTOM_BLOCK;
 export const ADV_CUSTOM_SWITCHES = 4;
 export const MIDI_CODE_SLOTS = 16;
+/** Bytes per logical midi-code entry (enable, ch, type, data1, data2). */
+export const MIDI_CODE_BYTES = 5;
+/** Bytes per packed Bank B read-back cell (verified for slot 2 only). */
+export const BANK_B_CELL_BYTES = 6;
+/** First/Bank A midi-code region start: block+1 .. +80, Bank B +81..+160. */
+export const MIDI_CODES_PER_BANK = MIDI_CODE_SLOTS * MIDI_CODE_BYTES;
+/** Logical region: midiCodeA starts at block+1, midiCodeB at block+81. */
+export const MIDI_CODE_A_OFFSET = 1;
+export const MIDI_CODE_B_OFFSET = MIDI_CODE_A_OFFSET + MIDI_CODES_PER_BANK;
 
 export interface MidiCode {
   /** Whether the footswitch sends this message. */
@@ -139,7 +148,11 @@ export function midiCodeAddr(
   slot: number,
   field: number
 ): number {
-  const base = advCustomBlockAddr(page, sw) + 1 + bank * (MIDI_CODE_SLOTS * 5) + slot * 5;
+  const base =
+    advCustomBlockAddr(page, sw) +
+    MIDI_CODE_A_OFFSET +
+    bank * MIDI_CODES_PER_BANK +
+    slot * MIDI_CODE_BYTES;
   return base + field;
 }
 
@@ -247,7 +260,9 @@ export function encodePackedMidiCode2(code: MidiCode): number[] {
     (code.type & 0x7) << 3,
     (code.data1 & 0x7) << 4,
     (code.data1 >> 3) | ((code.data2 & 0x3) << 5),
-    code.data2 >> 2,
+    // The device packs d2 bit 6 into B4 bit 6 (verified live: d2=71 -> 0x51,
+    // d2=81 -> 0x54), on top of (d2 >> 2).
+    (code.data2 >> 2) | (code.data2 & 0x40),
   ];
 }
 
@@ -256,8 +271,22 @@ export function decodePackedMidiCode2(rec: readonly number[]): MidiCode {
   const channel = (rec[0] >> 2) & 0xf;
   const type = (rec[1] >> 3) & 0x7;
   const data1 = ((rec[3] & 0x1f) << 3) | (rec[2] >> 4);
-  const data2 = (rec[4] << 2) | (rec[3] >> 5);
+  // B4 = (d2 >> 2) | (d2 & 0x40) and B3 bits 5..6 = d2 bits 0..1, so d2 must
+  // be reassembled with masks: d2 = ((B4 & 0x1f) << 2) | ((B3 >> 5) & 3).
+  // Without the B4 mask, d2 >= 0x20 decodes with garbage upper bits (found
+  // live: d2=71 -> 0x51 read back as 0x144 with the old formula).
+  const data2 = ((rec[4] & 0x1f) << 2) | ((rec[3] >> 5) & 3);
   return { enabled: true, channel, type, data1, data2 };
+}
+
+/**
+ * Pack a logical midi code into the 5-byte record the device serves on the
+ * 0D read for a given slot (R-codec for slot 0, codec2 for slots 1+). The
+ * inverse of `decodePackedMidiCode`/`decodePackedMidiCode2`. Used by the
+ * scripted device model (fuzz test) to mirror store-logical/serve-packed.
+ */
+export function fillPackedMidiCode(code: MidiCode, slot: number): number[] {
+  return slot === 0 ? encodePackedMidiCode(code) : encodePackedMidiCode2(code);
 }
 
 /**
@@ -298,6 +327,23 @@ export function decodePackedBankBCell(rec: readonly number[], slot: number): Mid
   return { enabled: true, channel, type, data1, data2 };
 }
 
+/** Channel nibble as stored in a Bank B cell (b1). */
+export function packBankBChannel(channel: number): number {
+  return channel & 0xf;
+}
+
+/**
+ * Pack a logical code into the 6-byte Bank B cell format the verified slot-2
+ * layout uses (b0=type-marker, b1=channel nibble, b4=data1, b5=data2<<1).
+ * The inverse of `decodePackedBankBCell` for slot 1 (index 1). Slot 0 and
+ * slots 3+ have unmapped layouts, so only slot 1 is produced here.
+ */
+export function fillPackedBankBCell(code: MidiCode, slot: number): number[] | null {
+  if (slot !== 1) return null; // unverified layout
+  const typeMarker = [0x40, 0x10, 0x04, 0x01][code.type] ?? 0x40;
+  return [typeMarker, packBankBChannel(code.channel), 0, 0, code.data1, code.data2 << 1];
+}
+
 /** MidI message type labels, in blob value order (see MidiCode.type). */
 export const MIDI_CODE_TYPES = [
   { value: 0, label: 'PC' },
@@ -330,12 +376,19 @@ export function decodeAddress(sel: readonly number[]): number {
 
 /** Checksum constant for an address (empirically derived from captures). */
 export function checksumConstantFor(addr: number): number {
+  // Live-found exception (see the write-boundary probes): on fsA page 0 the
+  // device rejects 09 49 writes to midiCodeA bytes 128..173 (slots 6..15)
+  // when they use the switch constant 0x28a, but ACKs them with 0x38b (which
+  // also works for the rest of the midiCode region). Keep everything else on
+  // the captured per-switch map.
+  if (addr >= 128 && addr <= 173) return CK_FOOTSWITCH_B;
+
   // Advanced Custom switch blocks (93 + k*417): the captured constants follow
   // the switch position within the page (A=0x28a, B=0x38b, C=0x18b, D=0x38b)
   // and repeat every page. Verified on each block's first byte (the step
   // mode). The midiCodeB region (Bank B, block+81..block+160) uses a separate
-  // constant (GUESS 0x38b, being live-tested) because a Bank-B write using the
-  // switch constant was not acknowledged by the device.
+  // constant (verified live: 0x18b is ACKed for Bank-B writes, the switch
+  // constant is not).
   const rel = addr - ADV_CUSTOM_START;
   if (rel >= 0 && rel < 8 * ADV_CUSTOM_BLOCK) {
     const sw = Math.floor(rel / ADV_CUSTOM_BLOCK) % ADV_CUSTOM_SWITCHES;

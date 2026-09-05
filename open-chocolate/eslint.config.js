@@ -6,9 +6,55 @@ import tsParser from '@typescript-eslint/parser';
 import prettier from 'eslint-plugin-prettier';
 import prettierConfig from 'eslint-config-prettier';
 
+const nodeGlobals = {
+  console: 'readonly',
+  process: 'readonly',
+  setTimeout: 'readonly',
+  clearTimeout: 'readonly',
+  setInterval: 'readonly',
+  clearInterval: 'readonly',
+  setImmediate: 'readonly',
+  clearImmediate: 'readonly',
+  Buffer: 'readonly',
+  URL: 'readonly',
+  URLSearchParams: 'readonly',
+  fetch: 'readonly',
+  performance: 'readonly',
+  structuredClone: 'readonly',
+  __dirname: 'readonly',
+  __filename: 'readonly',
+  require: 'readonly',
+  module: 'readonly',
+  exports: 'readonly',
+  global: 'readonly',
+  queueMicrotask: 'readonly',
+};
+
+// TS/Vue files run in the browser (and tests), so add the DOM globals too.
 const browserGlobals = {
-  browser: 'readonly',
-  node: 'readonly',
+  ...nodeGlobals,
+  window: 'readonly',
+  document: 'readonly',
+  navigator: 'readonly',
+  HTMLInputElement: 'readonly',
+  localStorage: 'readonly',
+  location: 'readonly',
+  history: 'readonly',
+  Blob: 'readonly',
+  URL: 'readonly',
+  URLSearchParams: 'readonly',
+  fetch: 'readonly',
+  setInterval: 'readonly',
+  clearInterval: 'readonly',
+  requestAnimationFrame: 'readonly',
+  cancelAnimationFrame: 'readonly',
+  performance: 'readonly',
+  structuredClone: 'readonly',
+  Event: 'readonly',
+  CustomEvent: 'readonly',
+  Node: 'readonly',
+  File: 'readonly',
+  FileReader: 'readonly',
 };
 
 const tsRules = {
@@ -59,7 +105,7 @@ export default [
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
-      globals: browserGlobals,
+      globals: nodeGlobals,
     },
     rules: {
       'prettier/prettier': 'error',

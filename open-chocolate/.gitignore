@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Native RtMidi bridge build output
+native/rtmidi-bridge/bin
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -11,6 +11,7 @@
     "lint:check": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "build:native": "make -C native/rtmidi-bridge",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "lefthook install"

@@ -12,7 +12,12 @@
  * operation of another (or a later) session.
  */
 
-import { MidiAccess, type MidiDevicePair, type MidiMessageEvent, type MidiTransport } from './midi';
+import {
+  MidiAccess,
+  type MidiDevicePair,
+  type MidiMessageEvent,
+  type MidiTransport,
+} from './midi.ts';
 import {
   ADDR,
   ADV_CUSTOM_SWITCHES,
@@ -35,8 +40,13 @@ import {
   unpackPackedMode,
   type MidiCode,
   type ParsedMessage,
-} from './sysex';
-import { configFromSnapshot, pagesFromSnapshot, toSnapshot, type CommsSnapshot } from './snapshot';
+} from './sysex.ts';
+import {
+  configFromSnapshot,
+  pagesFromSnapshot,
+  toSnapshot,
+  type CommsSnapshot,
+} from './snapshot.ts';
 
 /** Rolling request counter observed in the official app capture, per read. */
 const INIT_READ_RR = [
@@ -168,7 +178,7 @@ export function defaultMidiCode(): MidiCode {
   return { enabled: false, channel: 0, type: 0, data1: 0, data2: 0 };
 }
 
-export type { MidiCode } from './sysex';
+export type { MidiCode } from './sysex.ts';
 
 export interface ChocolateDevice {
   pair: MidiDevicePair;
@@ -182,7 +192,7 @@ interface PendingExpectation {
   match: (msg: ParsedMessage) => boolean;
   resolve: (msg: ParsedMessage) => void;
   reject: (err: Error) => void;
-  timer: number;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 export interface CommsOptions {
@@ -190,9 +200,47 @@ export interface CommsOptions {
   scanSettleMs?: number;
   /** Per-read response timeout before retrying (ms). */
   readTimeoutMs?: number;
+  /** Per-write ack timeout before retrying (ms). Defaults to 2000. */
+  ackTimeoutMs?: number;
 }
 
 const sleep = (ms: number) => new Promise((r) => globalThis.setTimeout(r, ms));
+
+/**
+ * Retry `op` with exponential backoff between attempts, capping each wait at
+ * `maxWaitMs`. Used for device operations: if a response doesn't arrive, the
+ * device may have dropped it, so re-issuing the identical request is safe for
+ * idempotent operations (config writes, read requests).
+ *
+ * Session-abort errors ("Device disconnected") are NOT retried - the session
+ * is being torn down, so retrying would just burn the backoff sleep.
+ */
+async function retryWithBackoff<T>(
+  op: (attempt: number) => Promise<T>,
+  _what: string,
+  opts: { maxRetries?: number; maxWaitMs?: number } = {}
+): Promise<T> {
+  const { maxRetries = 4, maxWaitMs = 5000 } = opts;
+  let wait = 250;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await op(attempt);
+    } catch (err) {
+      lastErr = err;
+      if (isSessionAbort(err)) throw err;
+      if (attempt === maxRetries) break;
+      await sleep(Math.min(wait, maxWaitMs));
+      wait *= 2;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+/** Errors that mean the session is gone should abort immediately, not retry. */
+function isSessionAbort(err: unknown): boolean {
+  return err instanceof Error && err.message === 'Device disconnected';
+}
 
 /** Split MIDI bytes into complete SysEx frames (F0 ... F7) using `buf`. */
 export function frameStream(bytes: Uint8Array, state: number[]): number[][] {
@@ -229,6 +277,7 @@ export class CommsService {
   readonly midi: MidiTransport;
   private readonly scanSettleMs: number;
   private readonly readTimeoutMs: number;
+  private readonly ackTimeoutMs: number;
   private devices = new Map<string, ChocolateDevice>();
   private connectedKey: string | null = null;
   private connectingDevice: ChocolateDevice | null = null;
@@ -253,6 +302,7 @@ export class CommsService {
     this.midi = midi;
     this.scanSettleMs = options.scanSettleMs ?? 1500;
     this.readTimeoutMs = options.readTimeoutMs ?? READ_TIMEOUT_MS;
+    this.ackTimeoutMs = options.ackTimeoutMs ?? 2000;
   }
 
   onMonitor(cb: (entry: MonitorEntry) => void): void {
@@ -323,6 +373,68 @@ export class CommsService {
     for (const cb of this.monitorListeners) cb(entry);
   }
 
+  /**
+   * Send raw SysEx request bytes and collect the matching responses, without
+   * decoding them. Used by tooling (the CLI) for protocol experiments - the
+   * web app does not need it.
+   *
+   * Filthy bus-sniff: rides the monitor stream, so entries from other
+   * devices/sessions observed during the window are skipped. Responses are
+   * matched by SysEx prefix (`F0 ...`), oldest first; messages that arrive
+   * after the returned array is settled are dropped (any downstream commands
+   * will receive them via later probes/generated reads).
+   *
+   * @param request  raw SysEx bytes to send (must start 0xf0, end 0xf7)
+   * @param opts.after  only return responses received after this timestamp (probe chaining)
+   * @param opts.gatherMs  how long to keep collecting responses (ms)
+   * @param opts.maxResponses  stop early once this many responses arrived
+   * @param opts.timeoutMs  abort if no response within this time (ms)
+   * @returns the first `maxResponses` received responses (oldest first)
+   */
+  async probe(
+    request: readonly number[],
+    opts: {
+      after?: number;
+      gatherMs?: number;
+      maxResponses?: number;
+      timeoutMs?: number;
+    } = {}
+  ): Promise<number[][]> {
+    const device = this.requireConnected();
+    if (!device.pair.outputId) throw new Error('Device has no MIDI output');
+    const { after = -1, gatherMs = 300, maxResponses = 1, timeoutMs = 1500 } = opts;
+    const results: number[][] = [];
+    const completed = (): boolean => results.length >= maxResponses;
+    const sessionAtStart = this.session;
+    const done = (): boolean =>
+      this.connectedKey !== device.pair.key || this.session > sessionAtStart || completed();
+    const collect = (entry: MonitorEntry): void => {
+      if (done()) return;
+      if (entry.timestamp <= after) return;
+      if (entry.dir !== 'RX') return;
+      const bytes = Array.from(entry.bytes);
+      if (bytes[0] !== SYSEX_START) return;
+      results.push(bytes);
+    };
+    this.onMonitor(collect);
+    try {
+      await this.tx(device.pair.outputId, request);
+      // Keep collecting until `gatherMs` elapses or the deadline set by
+      // `timeoutMs` passes with no first response (fail fast on a silent
+      // device, like the read-back's per-page retry).
+      const deadline = globalThis.performance.now() + gatherMs;
+      const firstDeadline = globalThis.performance.now() + timeoutMs;
+      while (!completed() && globalThis.performance.now() < deadline) {
+        if (results.length === 0 && globalThis.performance.now() > firstDeadline) break;
+        await sleep(25);
+      }
+    } finally {
+      this.monitorListeners = this.monitorListeners.filter((l) => l !== collect);
+    }
+    if (results.length === 0) throw new Error('Device did not respond to probe');
+    return results;
+  }
+
   private async tx(portId: string, bytes: readonly number[]): Promise<void> {
     this.log('TX', portId, Uint8Array.from(bytes));
     await this.midi.send(portId, bytes);
@@ -335,11 +447,16 @@ export class CommsService {
     timeoutMs: number
   ): Promise<ParsedMessage> {
     return new Promise((resolve, reject) => {
-      const expectation: PendingExpectation = { deviceKey, match, resolve, reject, timer: 0 };
-      expectation.timer = globalThis.setTimeout(() => {
-        this.pending = this.pending.filter((p) => p !== expectation);
-        reject(new Error('Device did not respond (timeout)'));
-      }, timeoutMs);
+      const expectation: PendingExpectation = {
+        deviceKey,
+        match,
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          this.pending = this.pending.filter((p) => p !== expectation);
+          reject(new Error('Device did not respond (timeout)'));
+        }, timeoutMs),
+      };
       this.pending.push(expectation);
     });
   }
@@ -531,11 +648,16 @@ export class CommsService {
       if (session !== this.session) throw new Error('Device disconnected');
     };
 
-    await this.tx(outputKey, buildDiscoveryRequest());
-    // The device answers every discovery request; wait briefly and move on.
-    await this.expect(deviceKey, (m) => m.kind === 'discovery-response', 2000).catch(
+    // Register the expectation BEFORE sending: the device can answer faster
+    // than the tx round-trip resolves, and a response that arrives while no
+    // expectation is registered is dropped (observed live: intermittent
+    // "Device did not respond" on writes and dropped read pages).
+    const discovery = this.expect(deviceKey, (m) => m.kind === 'discovery-response', 2000).catch(
       () => undefined
     );
+    await this.tx(outputKey, buildDiscoveryRequest());
+    // The device answers every discovery request; wait briefly and move on.
+    await discovery;
     assertActive();
 
     for (let i = 0; i < READ_PAGE_COUNT; i++) {
@@ -545,26 +667,40 @@ export class CommsService {
       const match = (m: ParsedMessage) =>
         m.kind === 'read-response' && m.pageId === pageId && m.final === final;
 
-      // One retry per page: a single dropped response must not abort the
-      // whole session, but a silent device must fail fast and clearly.
-      let resp: ParsedMessage | null = null;
-      for (let attempt = 1; attempt <= 2 && !resp; attempt++) {
-        assertActive();
-        await this.tx(outputKey, buildReadRequest(pageId, INIT_READ_RR[i], final));
-        try {
-          resp = await this.expect(deviceKey, match, this.readTimeoutMs);
-        } catch {
-          // A stale session must abort instead of retrying on a dead port.
-          assertActive();
-          if (attempt === 2) {
-            throw new Error(
-              `Device stopped answering configuration reads (page ${i + 1}/${READ_PAGE_COUNT}). Disconnect and rescan.`
-            );
-          }
+      // Retry each page with exponential backoff: a single dropped response
+      // must not abort the whole session, but a silent device must fail fast
+      // and clearly. Expectation first (see the discovery note above) so an
+      // early read response can never be dropped before `expect` is
+      // registered.
+      try {
+        const resp = await retryWithBackoff(
+          async () => {
+            assertActive();
+            const pending = this.expect(deviceKey, match, this.readTimeoutMs);
+            // A late timeout must not surface as an unhandled rejection if the
+            // tx below fails first and abandons this expectation.
+            pending.catch(() => undefined);
+            try {
+              await this.tx(outputKey, buildReadRequest(pageId, INIT_READ_RR[i], final));
+              return await pending;
+            } catch (err) {
+              // A stale session must abort instead of retrying on a dead port.
+              assertActive();
+              throw err;
+            }
+          },
+          `read page ${i + 1}/${READ_PAGE_COUNT}`,
+          { maxRetries: 4, maxWaitMs: 5000 }
+        );
+        if (resp && resp.kind === 'read-response') {
+          this.absorbPage(i, resp.payload);
         }
-      }
-      if (resp && resp.kind === 'read-response') {
-        this.absorbPage(i, resp.payload);
+      } catch (err) {
+        if (isSessionAbort(err)) throw err;
+        throw new Error(
+          `Device stopped answering configuration reads (page ${i + 1}/${READ_PAGE_COUNT}). Disconnect and rescan.`,
+          { cause: err }
+        );
       }
     }
   }
@@ -701,17 +837,31 @@ export class CommsService {
         bankBCodes.push(code);
       }
       banks[1] = {
-        codes: Array.from({ length: MIDI_CODE_SLOTS }, (_, i) => bankBCodes[i] ?? defaultMidiCode()),
+        codes: Array.from(
+          { length: MIDI_CODE_SLOTS },
+          (_, i) => bankBCodes[i] ?? defaultMidiCode()
+        ),
       };
       device.config.footswitchBanks[sw] = banks;
     }
   }
 
   /**
-   * Decode the packed slot records of a block: slot 1 at `base` using the
-   * R-codec, then further slots every 5 bytes (after the constant byte at
-   * `base+5`) using the slot-2+ codec. Records that are all-zero or decode to
-   * impossible fields are treated as absent.
+   * Decode the packed slot records of a block: slot 0 (index 0) at `base`
+   * with the R-codec, slot 1 (index 1) at `base+6` with codec2. Both are
+   * verified bit-exact on a live device.
+   *
+   * Slots 2+ DO exist in the packed read (they carry data on the device) but
+   * their record layout is a state-dependent / compacted structure: the
+   * record position shifts when neighbouring slots' presence changes (probed
+   * live: slot 4's record sits at blob 128 with only slots 0-3 present, at
+   * 130 with slot 3 present, and its content bytes follow
+   * [ch<<3][type<<4][(d1&3)<<5][d1>>2|((d2&1)<<6)][d2>>1] with a link byte
+   * that varies by state). Falsely decoding them with the fixed-offset codec2
+   * produces fabricated values, so they are reported as ABSENT until the
+   * compaction rule is derived (same policy as the unmapped Bank B cells).
+   *
+   * Records that are all-zero are treated as absent.
    */
   private decodePackedSlots(
     pages: Map<number, Uint8Array>,
@@ -719,8 +869,11 @@ export class CommsService {
   ): (MidiCode | undefined)[] {
     const slots: (MidiCode | undefined)[] = [];
     for (let s = 0; s < MIDI_CODE_SLOTS; s++) {
-      // slot1: base; slot2+: constant byte at base+5, then records every 5
-      // bytes (slot2 at base+6, slot3 at base+11, ...).
+      if (s >= 2) {
+        slots.push(undefined); // slots 2+: layout not derived (see above)
+        continue;
+      }
+      // slot0: base; slot1: constant byte at base+5, record at base+6..+10.
       const off = s === 0 ? base : base + 1 + s * 5;
       const rec = new Array<number>(5);
       let present = false;
@@ -756,12 +909,27 @@ export class CommsService {
     this.emitState();
   }
 
-  /** Send a configuration write and wait for the 01 08 acknowledgement. */
+  /**
+   * Send a configuration write and wait for the 01 08 acknowledgement.
+   *
+   * Expectation is registered BEFORE the tx so a fast device ACK can never
+   * be dropped (the observed intermittent timeout). Retries with exponential
+   * backoff (up to ~5s total); re-sending the same addr+value is idempotent.
+   */
   async writeConfig(addr: number, value: number): Promise<void> {
     const device = this.requireConnected();
-    if (!device.pair.outputId) throw new Error('Device has no MIDI output');
-    await this.tx(device.pair.outputId, buildConfigWrite(addr, value));
-    await this.expect(device.pair.key, (m) => m.kind === 'ack', 2000);
+    const outputId = device.pair.outputId;
+    if (!outputId) throw new Error('Device has no MIDI output');
+    await retryWithBackoff(async () => {
+      const pending = this.expect(device.pair.key, (m) => m.kind === 'ack', this.ackTimeoutMs);
+      pending.catch(() => undefined);
+      try {
+        await this.tx(outputId, buildConfigWrite(addr, value));
+        await pending;
+      } catch (err) {
+        throw new Error(`Config write to ${addr} was not acknowledged`, { cause: err });
+      }
+    }, `config write ${addr}`);
   }
 
   async setMode(mode: number): Promise<void> {
@@ -884,9 +1052,11 @@ export class CommsService {
   async clearFootswitchBanks(page: 0 | 1, index: 0 | 1 | 2 | 3, bank: 0 | 1): Promise<void> {
     const device = this.requireConnected();
     if (!device.pair.outputId) throw new Error('Device has no MIDI output');
+    const pending = this.expect(device.pair.key, (m) => m.kind === 'ack', this.ackTimeoutMs);
+    pending.catch(() => undefined);
     await this.tx(device.pair.outputId, buildBankClearWrite(page, index, bank));
     try {
-      await this.expect(device.pair.key, (m) => m.kind === 'ack', 2000);
+      await pending;
     } catch {
       // Device did not ACK the bulk clear (observed for footswitch A). Zero the
       // bank byte-by-byte via the proven `09 49` write path instead.

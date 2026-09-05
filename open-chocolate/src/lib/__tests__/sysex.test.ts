@@ -59,11 +59,24 @@ describe('checksum', () => {
     expect(checksumConstantFor(175)).toBe(0x18b); // fsA Bank B channel
     expect(checksumConstantFor(253)).toBe(0x18b); // fsA Bank B last code byte
     expect(checksumConstantFor(254)).toBe(0x28a); // sysExA keeps switch const
-    // Bank A (midiCodeA) is NOT affected.
+    // Bank A (midiCodeA) head keeps the switch constant.
     expect(checksumConstantFor(94)).toBe(0x28a);
     // Same region on the other switches.
     expect(checksumConstantFor(510 + 81)).toBe(0x18b); // fsB Bank B
     expect(checksumConstantFor(927 + 81)).toBe(0x18b); // fsC Bank B
+  });
+
+  it('uses 0x38b for the fsA page-0 midiCodeA tail (live write-boundary find)', () => {
+    // 09 49 writes to blob 128..173 (fsA page 0, Bank A slots 6..15) are
+    // rejected with the switch constant 0x28a but ACKed with 0x38b (verified
+    // live: value-independent NACK with 0x28a, ACK with 0x38b/0x18b across the
+    // whole 94..253 midi-code region).
+    expect(checksumConstantFor(127)).toBe(0x28a); // still switch constant
+    expect(checksumConstantFor(128)).toBe(0x38b); // first rejected byte
+    expect(checksumConstantFor(129)).toBe(0x38b);
+    expect(checksumConstantFor(150)).toBe(0x38b);
+    expect(checksumConstantFor(173)).toBe(0x38b); // last rejected byte
+    expect(checksumConstantFor(174)).toBe(0x18b); // Bank B unchanged
   });
 
   it('applies the switch constant to every byte of a switch block', () => {
@@ -373,6 +386,17 @@ describe('packed Advanced Custom codec', () => {
       expect(encodePackedMidiCode2(code)).toEqual(rec);
       expect(decodePackedMidiCode2(rec)).toEqual(code);
     }
+  });
+
+  it('reassembles high data2 values (d2 bit 6 live find)', () => {
+    // On the live device d2=71 packs B4=0x51 and d2=81 packs B4=0x54 (bit 6
+    // of d2 rides B4 bit 6 on top of d2>>2). The old decode (rec[4]<<2) read
+    // these back as 0x144/0x140 - garbage. Direct encode/decode checks:
+    for (const d2 of [0, 1, 31, 32, 50, 71, 81, 127]) {
+      const code = { enabled: true, channel: 2, type: 2, data1: 40, data2: d2 };
+      expect(decodePackedMidiCode2(encodePackedMidiCode2(code))).toEqual(code);
+    }
+    expect(decodePackedMidiCode2([0x08, 0x10, 0x00, 0x6b, 0x51]).data2).toBe(71);
   });
 
   it('decodes the captured Bank-B cells for slots 1-2', () => {
