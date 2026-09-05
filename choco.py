@@ -760,16 +760,20 @@ def set_trs_jack_mode(mode: str) -> int:
     return 0
 
 
-# Radio-group selection detector: the enabled radio's circle shows a white
-# center dot; others show a dark circle. Count white pixels in a box left
-# of each label position.
+# Selection detector: the selected control shows a white center dot /
+# marker; others are dark. Count white pixels in a box around each item.
 def _detect_radio_group(
-    modes: dict[str, tuple[int, int]], label: str
+    modes: dict[str, tuple[int, int]],
+    label: str,
+    box: int = 20,
+    x_off: int = -10,
 ) -> tuple[str | None, list[str]]:
-    """Detect which radio of `modes` is enabled (white center dot).
+    """Detect which item of `modes` is selected (white marker).
 
-    Returns (enabled_mode, problems). Exactly one should be enabled;
-    callers should treat 0 or >1 as failure.
+    Returns (selected, problems). Exactly one should be selected; callers
+    should treat 0 or >1 as failure. `box` is the half-width of the scan
+    square; `x_off` shifts its center (radios: dot left of the label;
+    tabs: centered on the tab).
     """
     import tempfile
 
@@ -788,8 +792,9 @@ def _detect_radio_group(
         enabled: list[str] = []
         for name, (x, y) in modes.items():
             white = 0
+            cx = x + x_off
             for yy in range(y - 8, y + 9):
-                for xx in range(x - 20, x - 1):
+                for xx in range(cx - box, cx + box):
                     c = im.getpixel((xx, yy))
                     if c[0] > 200 and c[1] > 200 and c[2] > 200:
                         white += 1
@@ -815,6 +820,34 @@ def detect_device_mode() -> tuple[str | None, list[str]]:
 def detect_trs_jack_mode() -> tuple[str | None, list[str]]:
     """Detect which TRS jack mode is enabled from the window pixels."""
     return _detect_radio_group(TRS_JACK_MODES, "trs-jack-mode")
+
+
+# Footswitch selection tabs (coords are the tab positions).
+FOOTSWITCH_TABS = {
+    "a": COORDS["foot_a"],
+    "b": COORDS["foot_b"],
+    "c": COORDS["foot_c"],
+    "d": COORDS["foot_d"],
+}
+
+
+def detect_footswitch(
+    require_advanced_custom: bool = True,
+) -> tuple[str | None, list[str]]:
+    """Detect the currently-selected footswitch (A/B/C/D) tab.
+
+    Requires device mode "Advanced Custom" (else error, since footswitch
+    selection is only meaningful there). Uses the same white-marker scan;
+    errors if 0 or >1 tabs look selected.
+    """
+    if require_advanced_custom:
+        dmode, dprobs = detect_device_mode()
+        if dprobs or dmode != "advanced_custom":
+            return None, [
+                "advanced_custom device mode not enabled "
+                f"(detected={dmode}, problems={dprobs})"
+            ]
+    return _detect_radio_group(FOOTSWITCH_TABS, "footswitch", box=40, x_off=0)
 
 
 # Polarity reversal toggle colors (FootCtrlPlus, at 248,76):
@@ -1092,8 +1125,18 @@ def main(argv=None) -> int:
     )
     _add_bank_flag(p_click)
 
-    p_switch = sub.add_parser("switch", help="select a foot switch (A/B/C/D)")
-    p_switch.add_argument("foot", type=str.lower, choices=list(FOOT_SWITCHES))
+    p_switch = sub.add_parser(
+        "switch",
+        help="select a foot switch (A/B/C/D), or 'get' to detect the "
+        "currently-selected one (requires Advanced Custom mode)",
+    )
+    p_switch.add_argument(
+        "foot",
+        nargs="?",
+        default="set",
+        choices=["set", "get"] + list(FOOT_SWITCHES),
+        help="'get' (detect), 'set' (show choices), or A/B/C/D",
+    )
     p_switch.add_argument(
         "--absolute",
         action="store_true",
@@ -1255,6 +1298,16 @@ def main(argv=None) -> int:
     if args.command == "click":
         return click_named(args.name, args.absolute, bank=args.bank)
     if args.command == "switch":
+        if args.foot == "get":
+            fsw, problems = detect_footswitch()
+            if problems:
+                print(
+                    f"switch get: detection problem: {'; '.join(problems)}",
+                    file=sys.stderr,
+                )
+                return 1
+            print(f"switch: footswitch {fsw.upper()} selected")
+            return 0
         return switch(args.foot, args.absolute, bank=args.bank)
     if args.command in ("footswitch-mode", "mode"):
         return set_footswitch_mode(args.mode)

@@ -2,6 +2,16 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Detect footswitch selection (2026-09-05)
+
+- Extend the white-marker detector: `_detect_radio_group` gains a `box`
+  half-width + `x_off` (radios scan the dot left of the label; tabs scan
+  centered, wider). Footswitch tabs show the same white selected-marker as
+  the radios.
+- `detect_footswitch()` + CLI `switch get`: detects A/B/C/D, requires
+  device mode `advanced_custom` (guard verified — errors under `speaker`).
+- Self-verified: clicked A/B/C/D/A/D, detected each — 6/6 OK.
+
 ## Task — Detect TRS Jack mode (2026-09-05)
 
 - Refactored the white-dot radio detector into a shared

@@ -36,6 +36,7 @@ python3 choco.py close-footctrlplus     # close FootCtrlPlus via title-bar close
 python3 choco.py close-editor           # (alt) close FootCtrlPlus via Escape
 python3 choco.py close-launchpad        # close the CubeSuite launchpad (exits the app) (648,13)
 python3 choco.py switch A               # select foot switch A/B/C/D
+python3 choco.py switch get             # detect the selected footswitch (requires Advanced Custom)
 python3 choco.py footswitch-mode single_step_double_bank   # select a footswitch mode radio (per foot switch)
 python3 choco.py device-mode advanced_custom             # select a device mode radio (one at a time)
 python3 choco.py device-mode get                          # detect the enabled device mode (white-dot radio)
@@ -62,7 +63,9 @@ mode/bank config), `manufacturer_control`, `touch_screen_android`,
 `video_control`, `keyboard_a`, `keyboard_b`, `multimedia_keyboard`,
 `custom_keyboard`, `mix`, `speaker`. `device-mode get` detects the
 enabled one from the window: the selected radio shows a white center dot
-(others dark); it errors if 0 or >1 modes look enabled.
+(others dark); it errors if 0 or >1 modes look enabled. `switch get`
+detects the selected footswitch (A/B/C/D) the same way, requiring
+`advanced_custom` device mode (errors otherwise).
 
 TRS jack modes (radio group, how the TRS socket reads; independent of
 device/footswitch mode; one at a time): `expression_pedal`, `trs_midi`.
