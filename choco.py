@@ -73,6 +73,9 @@ COORDS = {
     "add":        (650, 600),  # TODO: "Add" button
     # legacy alias for single_step_double_bank (same radio)
     "mode_single_step_two_banks": (609, 256),
+    # window close buttons (title bar)
+    "close_footctrlplus": (1250, 17),
+    "close_launchpad":    (648, 13),
 }
 COORDS.update({name: (x, y) for name, (x, y, _) in FOOTSWITCH_MODES.items()})
 
@@ -88,6 +91,8 @@ ACTION_WINDOW = {
     "mode_single_step_two_banks": "footctrlplus",
     "close_editor": "footctrlplus",
     "open_edit": "footctrlplus",
+    "close_footctrlplus": "footctrlplus",
+    "close_launchpad": "launchpad",
     "edit_channel": "midi_edit",
     "edit_type": "midi_edit",
     "edit_data1": "midi_edit",
@@ -107,6 +112,8 @@ DISPLAY = {
     "mode_single_step_two_banks": "mode-single-step-two-banks",
     "close_editor": "close-editor",
     "open_edit": "open-edit",
+    "close_footctrlplus": "close-footctrlplus",
+    "close_launchpad": "close-launchpad",
     "edit_channel": "edit-channel",
     "edit_type": "edit-type",
     "edit_data1": "edit-data1",
@@ -194,6 +201,11 @@ EVENT_EDIT_BUTTONS = [
 CLEAR_KEYPRESSES = 3
 # The type combo is reset to its top entry (PC) with this many Ups.
 TYPE_RESET_UP_ARROWS = 5
+
+# CubeSuite app launch (Bottles).
+BOTTLES_APP = "com.usebottles.bottles"
+BOTTLES_ENV = "Chocolate"
+CUBESUITE_WIN_PATH = r"C:\users\maja\Desktop\CubeSuite\CubeSuite.exe"
 
 # Bank B: every foot switch has bank A and bank B. In bank B view, the
 # FootCtrlPlus event-list controls shift +350px on X (midi edit dialog is
@@ -374,6 +386,33 @@ def cmd_close_editor() -> int:
             return 0
         time.sleep(0.1)
     print("close-editor: FootCtrlPlus still open after Escape", file=sys.stderr)
+    return 1
+
+
+def cmd_close_with_button(action: str) -> int:
+    """Close a window by clicking its title-bar close button."""
+    wid = require(action)
+    if wid is None:
+        return 1
+    if action == "close_footctrlplus":
+        # FootCtrlPlus first returns focus to the launchpad; the window is
+        # gone, so re-resolve the stack fresh.
+        click(wid, *COORDS["close_footctrlplus"])
+        for _ in range(30):
+            if open_windows()["footctrlplus"] is None:
+                print("close-footctrlplus: FootCtrlPlus closed")
+                return 0
+            time.sleep(0.1)
+        print("close-footctrlplus: still open after close click", file=sys.stderr)
+        return 1
+    # launchpad close: window vanishes and the app process exits
+    click(wid, *COORDS["close_launchpad"])
+    for _ in range(50):
+        if open_windows()["launchpad"] is None:
+            print("close-launchpad: CubeSuite window closed")
+            return 0
+        time.sleep(0.1)
+    print("close-launchpad: launchpad still open after close click", file=sys.stderr)
     return 1
 
 
@@ -614,6 +653,44 @@ def close_editor() -> int:
     return cmd_close_editor()
 
 
+def close_footctrlplus() -> int:
+    """Close FootCtrlPlus via its close button."""
+    return cmd_close_with_button("close_footctrlplus")
+
+
+def close_launchpad() -> int:
+    """Close the CubeSuite launchpad via its close button (exits the app)."""
+    return cmd_close_with_button("close_launchpad")
+
+
+def start_cubesuite(timeout: float = 30.0) -> int:
+    """Start CubeSuite (Bottles env Chocolate) if not running; wait for the
+    launchpad window to appear."""
+    if open_windows()["launchpad"] is not None:
+        print("start-cubesuite: CubeSuite already running")
+        return 0
+    try:
+        proc = subprocess.Popen(
+            ["flatpak", "run", BOTTLES_APP, "-b", BOTTLES_ENV,
+             "-e", CUBESUITE_WIN_PATH],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        print("start-cubesuite: flatpak not found", file=sys.stderr)
+        return 1
+    # The `flatpak run` parent may exit quickly after delegating to
+    # bottles-cli / launching Wine; don't treat that as failure. Wait for
+    # the launchpad window instead.
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if open_windows()["launchpad"] is not None:
+            print(f"start-cubesuite: launchpad window up ({time.time() - (deadline - timeout):.1f}s)")
+            return 0
+        time.sleep(0.25)
+    print(f"start-cubesuite: timeout ({timeout}s) waiting for launchpad", file=sys.stderr)
+    return 1
+
+
 def set_channel(channel: int) -> int:
     """Set the MIDI channel in the edit dialog."""
     return edit_set_channel(channel)
@@ -708,6 +785,18 @@ def main(argv=None) -> int:
         "close-editor",
         help="close FootCtrlPlus via the Escape key (graceful exit)",
     )
+    sub.add_parser(
+        "close-footctrlplus",
+        help="close the FootCtrlPlus window via its title-bar close button",
+    )
+    sub.add_parser(
+        "close-launchpad",
+        help="close the CubeSuite launchpad via its title-bar close button (exits the app)",
+    )
+    sub.add_parser(
+        "start-cubesuite",
+        help="start CubeSuite via Bottles (env Chocolate) and wait for the launchpad",
+    )
 
     p_open_edit = sub.add_parser(
         "open-edit",
@@ -768,6 +857,12 @@ def main(argv=None) -> int:
         return start_foot_ctrl_plus(args.absolute)
     if args.command == "close-editor":
         return close_editor()
+    if args.command == "close-footctrlplus":
+        return close_footctrlplus()
+    if args.command == "close-launchpad":
+        return close_launchpad()
+    if args.command == "start-cubesuite":
+        return start_cubesuite()
     if args.command == "open-edit":
         return open_edit(args.index, bank=args.bank)
     if args.command == "edit-channel":

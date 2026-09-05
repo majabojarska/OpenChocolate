@@ -1,0 +1,9 @@
+# choco midi capture 2026-09-05 22:22:54
+# port: 16:0 SINCO (SINCO MIDI 1)
+# port: 129:0 WINE midi driver (WINE ALSA Output #7)
+# cmd: aseqdump -p 16:0 | aseqdump -p 129:0
+--
+Waiting for data. Press Ctrl+C to end.
+Source  Event                  Ch  Data
+Waiting for data. Press Ctrl+C to end.
+Source  Event                  Ch  Data

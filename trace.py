@@ -34,8 +34,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 _COLOR = {
     "app->": "\033[32m",  # green
     "pdl->": "\033[33m",  # yellow
-    "?->":   "\033[31m",  # red (unknown direction)
-    "end":   "\033[0m",
+    "?->": "\033[31m",  # red (unknown direction)
+    "end": "\033[0m",
 }
 
 # ---------------------------------------------------------------- decode ---
@@ -61,11 +61,19 @@ MODE_BYTE_TO_NAME = {
 # identify which foot switch the mode change targets. From the (foot x
 # mode) sweep capture midi_20260905_215254.log.
 MODE_SWITCH_BYTES = {
-    0x025D: "A",   # bytes 8..9 = 02 5D
-    0x027E: "B",   # 02 7E
-    0x021F: "C",   # 02 1F
-    0x0240: "D",   # 02 40
+    0x025D: "A",  # bytes 8..9 = 02 5D
+    0x027E: "B",  # 02 7E
+    0x021F: "C",  # 02 1F
+    0x0240: "D",  # 02 40
 }
+
+# Init/discovery handshake (register read protocol):
+#   app -> dev read request: F0 00 32 0D 41 00 00 00 02 <a> <b> <c> 00 00 10 7E 00 00 <v> 00 F7
+#   dev -> app response:     F0 00 32 0D 49 3F 00 00 02 <same a.b.c> ... <payload> F7
+# The device also emits a constant discovery banner: F0 00 32 45 58 01 00 00 ...
+READ_REQUEST_FAM = 0x41  # after 0x0D: request
+RESPONSE_FAM = 0x49  # after 0x0D: response
+DISCOVERY_BANNER = 0x58  # after 0x45: device discovery banner
 
 # Config blob: each event slot's entry occupies ~6 bytes starting at 0x0C.
 # The "data2" field of a CC message is encoded across bytes 0x0B/0x0C:
@@ -84,6 +92,7 @@ def decode_d2(lo: int, hi: int) -> Optional[int]:
         return None
     d2 = (hi - 0x40) * 4 + rem + 1
     return d2 if 1 <= d2 <= 127 else None
+
 
 _EVENT_RE = re.compile(r"^\s*(\d+:\d+)\s+(.*)$")
 _HEADER_PORT_RE = re.compile(r"^# port: (\d+:\d+)\s+(.*)$")
@@ -142,6 +151,16 @@ def decode_sysex(b: bytes) -> Dict[str, object]:
             info["switch"] = sw
             if len(b) >= 18:
                 info["mode"] = MODE_BYTE_TO_NAME.get(b[17], f"0x{b[17]:02X}")
+    elif b[3] == 0x0D:
+        # Init/discovery register-read protocol.
+        if b[4] == READ_REQUEST_FAM and len(b) >= 21:
+            info["kind"] = "read_req"
+            info["addr"] = f"{b[9]:02X}{b[10]:02X}{b[11]:02X}"
+        elif b[4] == RESPONSE_FAM:
+            info["kind"] = "read_resp"
+            info["addr"] = f"{b[9]:02X}{b[10]:02X}{b[11]:02X}"
+    elif b[3] == 0x45 and b[4] == DISCOVERY_BANNER:
+        info["kind"] = "discovery"
     elif b[3] == 0x01:
         # device -> host
         if len(b) == 12 and b[4] == 0x08:
@@ -158,7 +177,10 @@ def _emit(
     color: bool = True,
 ) -> None:
     if color and direction in _COLOR:
-        print(f"[#{count:4d}] {_COLOR[direction]}{direction}{_COLOR['end']} {shown}", flush=True)
+        print(
+            f"[#{count:4d}] {_COLOR[direction]}{direction}{_COLOR['end']} {shown}",
+            flush=True,
+        )
     else:
         print(f"[#{count:4d}] {direction} {shown}", flush=True)
 
@@ -171,6 +193,8 @@ def render(port: str, kind: str, data: str, raw: bool = False) -> Optional[str]:
         details = []
         if "kind" in info:
             details.append(f"len={len(b)} {info['kind']}")
+            if "addr" in info:
+                details.append(f"addr={info['addr']}")
             if raw or len(b) <= 16:
                 details.append(data)
         else:
@@ -315,6 +339,7 @@ def tap(
 
 def _wait_children(procs, timeout: float) -> Tuple[List, List]:
     import time as _t
+
     deadline = _t.time() + timeout
     done, alive = [], []
     for p in procs:
@@ -389,17 +414,23 @@ def main(argv=None) -> int:
         description="Decode choco MIDI traffic — live (default) or from a log.",
     )
     parser.add_argument(
-        "patterns", nargs="*", default=["WINE midi driver", "SINCO"],
+        "patterns",
+        nargs="*",
+        default=["WINE midi driver", "SINCO"],
         help="client-name substrings to tap (default: wine + sinco); if the "
-             "first looks like an existing log file, that file is analyzed "
-             "instead of tapping",
+        "first looks like an existing log file, that file is analyzed "
+        "instead of tapping",
     )
     parser.add_argument(
-        "--app", nargs="+", default=["wine"],
+        "--app",
+        nargs="+",
+        default=["wine"],
         help="client-name substrings treated as the app (TX)",
     )
     parser.add_argument(
-        "--pedal", nargs="+", default=[],
+        "--pedal",
+        nargs="+",
+        default=[],
         help="client-name substrings treated as the pedal (RX)",
     )
     parser.add_argument("--raw", action="store_true", help="show full SysEx hex")
@@ -407,7 +438,8 @@ def main(argv=None) -> int:
         "--dir", choices=["app->", "pdl->"], help="only show this direction"
     )
     parser.add_argument(
-        "--no-color", action="store_true",
+        "--no-color",
+        action="store_true",
         help="disable ANSI colors (auto-used when not a tty)",
     )
     args = parser.parse_args(argv)

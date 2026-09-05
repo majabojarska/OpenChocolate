@@ -1,0 +1,5 @@
+# choco midi capture 2026-09-05 22:24:38
+# port: 16:0 SINCO (SINCO MIDI 1)
+# cmd: aseqdump -p 16:0
+--
+# port: 16:0 SINCO

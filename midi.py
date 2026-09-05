@@ -61,11 +61,7 @@ def resolve_ports(patterns: Sequence[str]) -> List[EncodedPort]:
     pats = [p.lower() for p in patterns if p]
     if not pats:
         return []
-    return [
-        port
-        for port in list_ports()
-        if any(p in port[1].lower() for p in pats)
-    ]
+    return [port for port in list_ports() if any(p in port[1].lower() for p in pats)]
 
 
 def _pump(proc: subprocess.Popen, port: str, log, tee: bool, counts: List[int]) -> None:
@@ -88,19 +84,44 @@ def default_log_path() -> str:
     )
 
 
+def _spawn_tap(
+    port_id, client, log, tee, counts, stdbuf, procs, threads, header_written=False
+):
+    """Start aseqdump for one port, pumping into `log`."""
+    if not header_written:
+        log.write(f"# port: {port_id} {client}\n")
+    cmd = (["stdbuf", "-oL"] if stdbuf else []) + ["aseqdump", "-p", port_id]
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
+    procs.append(proc)
+    t = threading.Thread(
+        target=_pump,
+        args=(proc, f"{port_id} {client}", log, tee, counts),
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+
 @contextlib.contextmanager
 def record(
     *patterns: str,
     log_file: Optional[str] = None,
     tee: bool = True,
     wait_for: float = 0.0,
+    rescan_after: float = 2.0,
 ):
     """Run `aseqdump` on all ports matching `patterns` for the duration of
     the `with` block.
 
     Streams each event live (one line per port, prefixed) and tees it to
-    `log_file` (default: `midi_<timestamp>.log` in the CWD). If no port
-    matches the patterns, raises RuntimeError listing what's available.
+    `log_file` (default: `captures/<MM_DD>/midi_<timestamp>.log`). If no
+    port matches the patterns, raises RuntimeError listing what's available.
+
+    `rescan_after`: after this many seconds, re-resolve the patterns and
+    tap any NEW matching ports (e.g. the app's Wine MIDI port only appears
+    once the app itself starts). Set to 0/None to disable.
     """
     ports = resolve_ports(patterns or DEFAULT_PATTERNS)
     if not ports:
@@ -120,8 +141,10 @@ def record(
     procs: List[subprocess.Popen] = []
     threads: List[threading.Thread] = []
 
-    print(f"recording {len(ports)} port(s): "
-          f"{', '.join(f'{p[1]} ({p[0]})' for p in ports)} -> {log_file}")
+    print(
+        f"recording {len(ports)} port(s): "
+        f"{', '.join(f'{p[1]} ({p[0]})' for p in ports)} -> {log_file}"
+    )
 
     try:
         with open(log_file, "w") as log:
@@ -130,25 +153,51 @@ def record(
             log.write(f"# choco midi capture {dt.datetime.now():%Y-%m-%d %H:%M:%S}\n")
             for port_id, client, port_name in ports:
                 log.write(f"# port: {port_id} {client} ({port_name})\n")
-            log.write("# cmd: " + " | ".join(f"aseqdump -p {p[0]}" for p in ports) + "\n")
+            log.write(
+                "# cmd: " + " | ".join(f"aseqdump -p {p[0]}" for p in ports) + "\n"
+            )
             log.write("--\n")
             for port_id, client, port_name in ports:
-                cmd = (["stdbuf", "-oL"] if stdbuf else []) + [
-                    "aseqdump", "-p", port_id,
-                ]
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
-                procs.append(proc)
-                t = threading.Thread(
-                    target=_pump, args=(proc, f"{port_id} {client}", log, tee, counts),
-                    daemon=True,
-                )
-                t.start()
-                threads.append(t)
+                _spawn_tap(port_id, client, log, tee, counts, stdbuf, procs, threads)
+
+            if rescan_after:
+                # Poll for late-appearing ports (e.g. the app's Wine MIDI
+                # port shows up only once the app launches). Resolve after a
+                # short delay, then every 0.5s until quiet passes find
+                # nothing new, bounded by rescan_after total.
+                deadline = time.time() + rescan_after
+                seen = {p[0] for p in ports}
+                quiet = 0
+                while time.time() < deadline:
+                    new = resolve_ports(patterns or DEFAULT_PATTERNS)
+                    added = False
+                    for port_id, client, port_name in new:
+                        if port_id not in seen:
+                            ports.append((port_id, client, port_name))
+                            seen.add(port_id)
+                            log.write(
+                                f"# port+late: {port_id} {client} ({port_name})\n"
+                            )
+                            log.flush()
+                            _spawn_tap(
+                                port_id,
+                                client,
+                                log,
+                                tee,
+                                counts,
+                                stdbuf,
+                                procs,
+                                threads,
+                            )
+                            print(f"  late-tapped port: {client} ({port_id})")
+                            added = True
+                    if added:
+                        quiet = 0
+                    else:
+                        quiet += 1
+                        if quiet >= 3:
+                            break
+                    time.sleep(0.5)
 
             if wait_for:
                 time.sleep(wait_for)

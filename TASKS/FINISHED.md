@@ -2,6 +2,46 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task 4 — GUI start/close + discovery handshake (2026-09-05)
+
+### Step 4 result: discovery SysEx RE'd
+
+- **Register-read protocol (family `0D`)**: app reads the device config on
+  launch via an address sweep. Read request
+  `F0 00 32 0D 41 ... <addr>`; the device echoes each address in a
+  `0D 49` response with a ~1170-byte payload. 24 requests / 17 responses
+  captured (`captures/09_05/discovery_handshake.log`).
+- **Device discovery banner** (constant): `F0 00 32 45 58 01 00 00
+  23 6F 5E ... 0E F7` — the "ping response" of the user model.
+- `trace.py` decodes `read_req` / `read_resp` / `discovery`; spec §2b
+  documents it and §6.1 is marked resolved.
+- Finding: long device SysEx are split across aseqdump lines (must
+  reconstruct by `F0` starts); the app reads in a descending-address sweep.
+
+### Steps 1-3 (from earlier):
+
+- `start-cubesuite`, `close-footctrlplus`, `close-launchpad` all work
+  (see Task 4 entry below for the coordinate `-e`/`648,13` fixes).
+
+---
+
+## Task 4 (setup) — GUI start/close harness (2026-09-05)
+
+Added start/close support for the two top-level windows.
+
+- `start-cubesuite`: launches via `flatpak run com.usebottles.bottles -b
+  Chocolate -e C:\users\maja\Desktop\CubeSuite\CubeSuite.exe`, waits for the
+  launchpad window (~3.6s here). Learned: the `flatpak run` parent exits
+  quickly (delegates to bottles-cli) — do NOT treat early exit as failure,
+  wait on the window.
+- `close-footctrlplus`: clicks the FootCtrlPlus title-bar close button
+  (1250, 17); verified.
+- `close-launchpad`: clicks the CubeSuite launchpad close button. Measured
+  from a screenshot: the real close button is at the right end of the blue
+  title bar, (648, 13) — NOT (139, 15) which is the menu/title text area.
+- Verified end-to-end with the operator: start → footctrlplus →
+  close-footctrlplus → close-launchpad → (no CubeSuite processes remain).
+
 ## Task 3 — Footswitch mode-select SysEx, all footswitches (2026-09-05)
 
 Full (footswitch × mode) protocol sweep, capture

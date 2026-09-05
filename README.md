@@ -30,7 +30,11 @@ actions.
 ```sh
 python3 choco.py state                  # focused window + allowed actions (--json for machine-readable)
 python3 choco.py geometry [window]      # frame rect x y w h of a window (default: focused)
+python3 choco.py start-cubesuite       # start CubeSuite via Bottles (env Chocolate) + wait for launchpad
 python3 choco.py start-foot-ctrl-plus   # launcher button -> FootCtrlPlus + init sequence
+python3 choco.py close-footctrlplus     # close FootCtrlPlus via title-bar close button (1250,17)
+python3 choco.py close-editor           # (alt) close FootCtrlPlus via Escape
+python3 choco.py close-launchpad        # close the CubeSuite launchpad (exits the app) (648,13)
 python3 choco.py switch A               # select foot switch A/B/C/D
 python3 choco.py footswitch-mode single_step_double_bank   # select a footswitch mode radio (per foot switch)
 python3 choco.py remove-all             # clear the mapped events list

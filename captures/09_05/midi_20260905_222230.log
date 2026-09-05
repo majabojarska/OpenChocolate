@@ -1,0 +1,7 @@
+# choco midi capture 2026-09-05 22:22:30
+# port: 16:0 SINCO (SINCO MIDI 1)
+# cmd: aseqdump -p 16:0
+--
+Waiting for data. Press Ctrl+C to end.
+Source  Event                  Ch  Data
+ 16:0   System exclusive           F0 00 32 45 58 01 00 00 23 6F 5E 51 1B 44 4E 1C 36 50 58 55 1B 77 0B 4C 18 36 00 00 00 00 00 00 00 00 00 00 00 00 00 0E F7
