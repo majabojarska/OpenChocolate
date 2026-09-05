@@ -236,55 +236,204 @@ export function encodePackedMidiCode(code: MidiCode): number[] {
 }
 
 /**
- * Slot-2+ packed record codec (verified bit-exact on a live device).
+ * Bank A packed record layout.
  *
- * Slot 1 of a switch block uses `decodePackedMidiCode` (R-codec) at packed
- * block +2..+6; each ADDITIONAL enabled message lives at +8..+12 (+5 per
- * further slot, after the constant byte at +7) and uses this layout:
+ * Each slot i of a switch block (Bank A) has a FIXED record position P[i]
+ * (blob address on the packed page) and a per-slot marker byte with period
+ * 7: i%7 -> {1:0x02, 2:0x40, 3:0x10, 4:0x04, 5:0x01, 6:0x20, 0:0x08}.
+ * The record = [marker, content bytes] with 6-byte cells for markers
+ * 0x01/0x02/0x04/0x08 and 7-byte cells for markers 0x10/0x20/0x40 (the extra
+ * byte carries d2's high bits). The LAST content byte is OR'd with the NEXT
+ * slot's marker when the next marker is a high family (>= 0x04; the low
+ * 0x01/0x02 markers leave the previous byte as pure data).
  *
- *   B0 = (channel & 0xf) << 2
- *   B1 = (type & 0x7) << 3
- *   B2 = (data1 & 0x7) << 4                  // data1 bits 0..2
- *   B3 = (data1 >> 3) | ((data2 & 3) << 5)   // data1 bits 3..6, data2 bits 0..1
- *   B4 = data2 >> 2                          // data2 bits 2..6
+ * Positions (verified against a full 16-slot bank, 16/16 exact):
+ *   P = [107, 113, 118, 124, 130, 136, 141, 147, 153, 158, 164, 170, 176,
+ *        181, 187, 193]  (page 0, switch A; +480*sw per switch)
+ * Slot 0 uses the standalone R-codec (decodePackedMidiCode).
  *
- * Verified against four on-device reads ({ch,type,d1,d2} -> bytes 114-118):
- *   {2,NoteON,40,50} -> 08 10 00 45 0c
- *   {3,CC,40,50}     -> 0c 08 00 45 0c
- *   {2,CC,40,50}     -> 08 08 00 45 0c
- *   {2,NoteON,41,50} -> 08 10 10 45 0c
+ * KNOWN GAP: type 4 (SysEx) has its own packing in the high families
+ * (0x10/0x20/0x40) that is NOT yet derived - live probe shows ch/type bits
+ * relocate when type>=4. decodePackedFamily returns null for those so the
+ * UI reports them empty instead of fabricating (verified: types 0-3 decode
+ * exactly in all families; type 4 works in the low 0x01/0x02/0x04/0x08).
  */
-export function encodePackedMidiCode2(code: MidiCode): number[] {
-  return [
-    (code.channel & 0xf) << 2,
-    (code.type & 0x7) << 3,
-    (code.data1 & 0x7) << 4,
-    (code.data1 >> 3) | ((code.data2 & 0x3) << 5),
-    // The device packs d2 bit 6 into B4 bit 6 (verified live: d2=71 -> 0x51,
-    // d2=81 -> 0x54), on top of (d2 >> 2).
-    (code.data2 >> 2) | (code.data2 & 0x40),
-  ];
+export const PACKED_SLOT_POS: readonly number[] = [
+  107, 113, 118, 124, 130, 136, 141, 147, 153, 158, 164, 170, 176, 181, 187, 193,
+];
+export const PACKED_SLOT_MARK: readonly number[] = [0x08, 0x02, 0x40, 0x10, 0x04, 0x01, 0x20];
+
+export function packedSlotMark(slot: number): number {
+  return PACKED_SLOT_MARK[slot % 7];
 }
 
-/** Decode a slot-2+ packed 5-byte record `B0..B4` to a logical code. */
-export function decodePackedMidiCode2(rec: readonly number[]): MidiCode {
-  const channel = (rec[0] >> 2) & 0xf;
-  const type = (rec[1] >> 3) & 0x7;
-  const data1 = ((rec[3] & 0x1f) << 3) | (rec[2] >> 4);
-  // B4 = (d2 >> 2) | (d2 & 0x40) and B3 bits 5..6 = d2 bits 0..1, so d2 must
-  // be reassembled with masks: d2 = ((B4 & 0x1f) << 2) | ((B3 >> 5) & 3).
-  // Without the B4 mask, d2 >= 0x20 decodes with garbage upper bits (found
-  // live: d2=71 -> 0x51 read back as 0x144 with the old formula).
-  const data2 = ((rec[4] & 0x1f) << 2) | ((rec[3] >> 5) & 3);
-  return { enabled: true, channel, type, data1, data2 };
+export function packedSlotLen(slot: number): number {
+  return packedSlotMark(slot) <= 0x08 ? 6 : 7;
+}
+
+/** Decode one family's content bytes (after the marker) to a logical code. */
+export function decodePackedFamily(mark: number, c: readonly number[]): MidiCode | null {
+  switch (mark) {
+    case 0x02:
+      return {
+        enabled: true,
+        channel: (c[0] >> 2) & 0xf,
+        type: (c[1] >> 3) & 7,
+        data1: ((c[3] & 0x1f) << 3) | ((c[2] >> 4) & 7),
+        data2: ((c[4] & 0x1f) << 2) | ((c[3] >> 5) & 3),
+      };
+    case 0x04:
+      return {
+        enabled: true,
+        channel: (c[0] >> 3) & 0xf,
+        type: (c[1] >> 4) & 7,
+        data1: ((c[3] & 0x3f) << 2) | ((c[2] >> 5) & 3),
+        data2: ((c[4] << 1) & 0x7e) | ((c[3] >> 6) & 1),
+      };
+    case 0x08:
+      // 0x08 family (slots 7, 14 of the cycle - NOT slot 0, which is the
+      // standalone R-codec): ch = (b0&7)<<4 | (b1&1)<<3, type = (b1>>5)&3 |
+      // ((b2&1)<<2) (the type bit 2 rides b2 bit 0), d1 = (b3&0x7f)<<1 |
+      // (b2>>6), d2 = b4.
+      return {
+        enabled: true,
+        channel: ((c[0] >> 4) & 7) | ((c[1] & 1) << 3),
+        type: ((c[1] >> 5) & 3) | ((c[2] & 1) << 2),
+        data1: ((c[3] & 0x7f) << 1) | ((c[2] >> 6) & 1),
+        data2: c[4] & 0x7f,
+      };
+    case 0x01:
+      // 5 content bytes [1..5]: b1=ch<<1, b2=type<<2, b3=(d1&0xf)<<3,
+      // b4=((d2&7)<<4)|(d1>>4), and b5 is the NEXT slot's marker whose low
+      // 3 bits carry d2 bits 3..5 (marker-OR).
+      return {
+        enabled: true,
+        channel: (c[0] >> 1) & 0x7f,
+        type: (c[1] >> 2) & 7,
+        data1: ((c[3] & 0xf) << 4) | ((c[2] >> 3) & 0xf),
+        data2: ((c[3] >> 4) & 7) | (((c[4] ?? 0) & 7) << 3),
+      };
+    case 0x10:
+      // 6 content bytes (7B cell): [ch bits][type bits][d1][d2<<1][carry]
+      if ((c[1] >> 6) & 1 && (c[2] & 3) << 1 === 4) return null; // type 4 unmapped here
+      return {
+        enabled: true,
+        channel: (c[0] & 0x20 ? 1 : 0) | ((c[0] & 0x40 ? 1 : 0) << 1) | ((c[1] & 3) << 2),
+        type: ((c[1] >> 6) & 1) | ((c[2] & 3) << 1),
+        data1: c[3] & 0x7f,
+        data2: ((c[5] & 1) << 6) | (c[4] >> 1),
+      };
+    case 0x20:
+      // 6 content bytes (7B cell): type 4 unmapped here
+      if (c[2] === 4) return null;
+      return {
+        enabled: true,
+        channel: ((c[0] >> 6) & 1) | ((c[1] << 1) & 0x7e),
+        type: c[2] & 7,
+        data1: ((c[3] >> 1) & 0x3f) | ((c[4] & 1) << 6),
+        data2: ((c[5] & 3) << 5) | (c[4] >> 2),
+      };
+    case 0x40:
+      // 6 content bytes (7B cell): type 4 unmapped here
+      if (c[2] >> 1 === 4) return null;
+      return {
+        enabled: true,
+        channel: c[1] & 0xf,
+        type: (c[2] >> 1) & 7,
+        data1: ((c[3] >> 2) & 0x1f) | ((c[4] & 3) << 5),
+        data2: ((c[5] & 7) << 4) | (c[4] >> 3),
+      };
+    default:
+      return null;
+  }
 }
 
 /**
- * Pack a logical midi code into the 5-byte record the device serves on the
- * 0D read for a given slot (R-codec for slot 0, codec2 for slots 1+). The
- * inverse of `decodePackedMidiCode`/`decodePackedMidiCode2`. Used by the
- * scripted device model (fuzz test) to mirror store-logical/serve-packed.
+ * Legado wrappers (kept for the scripted device model + tests):
+ * - 0x02 marker = codec2 (5 content bytes, d2 in B4/B3).
+ * - the 0x40/0x10/0x20/0x01/0x04/0x08 families are handled by
+ *   `decodePackedFamily`/`encodePackedFamily` with the slot positions.
  */
+export function encodePackedMidiCode2(code: MidiCode): number[] {
+  return encodePackedFamily(0x02, code) ?? [0, 0, 0, 0, 0];
+}
+
+export function decodePackedMidiCode2(rec: readonly number[]): MidiCode {
+  return (
+    decodePackedFamily(0x02, rec) ?? { enabled: false, channel: 0, type: 0, data1: 0, data2: 0 }
+  );
+}
+
+/**
+ * Pack a logical midi code into the 5-byte record family for a given marker
+ * (the inverse of `decodePackedFamily`). Used by the scripted device model.
+ */
+export function encodePackedFamily(mark: number, code: MidiCode): number[] | null {
+  switch (mark) {
+    case 0x02:
+      return [
+        (code.channel & 0xf) << 2,
+        (code.type & 0x7) << 3,
+        (code.data1 & 0x7) << 4,
+        (code.data1 >> 3) | ((code.data2 & 0x3) << 5),
+        (code.data2 >> 2) & 0x7f,
+      ];
+    case 0x04:
+      return [
+        (code.channel & 0xf) << 3,
+        (code.type & 0x7) << 4,
+        (code.data1 & 0x3) << 5,
+        (code.data1 >> 2) | ((code.data2 & 1) << 6),
+        (code.data2 >> 1) & 0x7f,
+      ];
+    case 0x08:
+      return [
+        (code.channel & 7) << 4,
+        ((code.type & 3) << 5) | ((code.channel >> 3) & 1) | (((code.type >> 2) & 1) << 1),
+        ((code.data1 & 1) << 6) | ((code.type >> 2) & 1),
+        (code.data1 >> 1) & 0x7f,
+        code.data2 & 0x7f,
+      ];
+    case 0x01:
+      return [
+        (code.channel & 0x7f) << 1,
+        (code.type & 7) << 2,
+        (code.data1 & 0xf) << 3,
+        ((code.data2 & 7) << 4) | ((code.data1 >> 4) & 0xf),
+        (code.data2 >> 3) & 0x7f,
+      ];
+    case 0x10:
+      return [
+        ((code.channel & 1) << 5) | (((code.channel >> 1) & 1) << 6),
+        ((code.channel >> 2) & 3) | ((code.type & 1) << 6),
+        (code.type >> 1) & 3,
+        code.data1 & 0x7f,
+        (code.data2 << 1) & 0x7f,
+        (code.data2 << 1) >> 7,
+      ];
+    case 0x20:
+      return [
+        (code.channel & 1) << 6,
+        (code.channel >> 1) & 0x7f,
+        code.type & 7,
+        (code.data1 << 1) & 0x7f,
+        ((code.data2 << 2) & 0x7f) | (code.data1 >> 6),
+        (code.data2 << 2) >> 7,
+      ];
+    case 0x40:
+      return [
+        0,
+        code.channel & 0xf,
+        (code.type & 7) << 1,
+        (code.data1 << 2) & 0x7f,
+        ((code.data2 << 3) & 0x7f) | (code.data1 >> 5),
+        (code.data2 << 3) >> 7,
+      ];
+    default:
+      return null;
+  }
+}
+
 export function fillPackedMidiCode(code: MidiCode, slot: number): number[] {
   return slot === 0 ? encodePackedMidiCode(code) : encodePackedMidiCode2(code);
 }

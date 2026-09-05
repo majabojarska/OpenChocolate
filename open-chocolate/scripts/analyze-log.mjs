@@ -28,7 +28,10 @@ function parseLog(path) {
       /\[open-chocolate\] (RX|TX) [^(]*?\((\d+) B\): (f0 [0-9a-f ]+?)(?:device\.ts)?\s*$/
     );
     if (!m) continue;
-    const bytes = m[3].trim().split(/\s+/).map((h) => parseInt(h, 16));
+    const bytes = m[3]
+      .trim()
+      .split(/\s+/)
+      .map((h) => parseInt(h, 16));
     if (bytes.length >= 20 && bytes[0] === 0xf0 && bytes[3] === 0x0d && bytes[4] === 0x49) {
       const addr = bytes[9] | (bytes[10] << 7) | (bytes[11] << 14);
       if (!pages.has(addr)) pages.set(addr, bytes.slice(17, -3));
@@ -66,13 +69,20 @@ if (!p0) {
   console.log('no page0');
 } else {
   console.log(`mode${p0[106] >> 2} flag${p0[107].toString(16)}`);
-  console.log(`bankA header: ${p0.slice(106, 119).map((x) => x.toString(16).padStart(2, '0')).join(' ')}`);
+  console.log(
+    `bankA header: ${p0
+      .slice(106, 119)
+      .map((x) => x.toString(16).padStart(2, '0'))
+      .join(' ')}`
+  );
   if (P0) {
     console.log('bankA cells (5-byte stride from 108):');
     for (let s = 0; s < 3; s++) {
       const rec = p0.slice(108 + (s === 0 ? 0 : 1 + s * 5), 108 + (s === 0 ? 0 : 1 + s * 5) + 5);
       if (rec.length === 5)
-        console.log(`  slot${s + 1}@${108 + (s === 0 ? 0 : 1 + s * 5)}: ${rec.map((x) => x.toString(16).padStart(2, '0')).join(' ')} R=${JSON.stringify(rcodec(rec))} C2=${JSON.stringify(codec2(rec))}`);
+        console.log(
+          `  slot${s + 1}@${108 + (s === 0 ? 0 : 1 + s * 5)}: ${rec.map((x) => x.toString(16).padStart(2, '0')).join(' ')} R=${JSON.stringify(rcodec(rec))} C2=${JSON.stringify(codec2(rec))}`
+        );
     }
   }
   if (BB) {
@@ -80,13 +90,20 @@ if (!p0) {
     for (let s = 0; s < 4; s++) {
       const off = 198 + s * 6;
       const cell = p0.slice(off, off + 6);
-      console.log(`  slot${s + 1}@${off}: ${cell.map((x) => x.toString(16).padStart(2, '0')).join(' ')}`);
+      console.log(
+        `  slot${s + 1}@${off}: ${cell.map((x) => x.toString(16).padStart(2, '0')).join(' ')}`
+      );
     }
   }
   if (P0) {
     console.log('advanced region 100..240:');
     for (let off = 100; off < 240; off += 8)
-      console.log(`  ${off}: ${p0.slice(off, off + 8).map((x) => x.toString(16).padStart(2, '0')).join(' ')}`);
+      console.log(
+        `  ${off}: ${p0
+          .slice(off, off + 8)
+          .map((x) => x.toString(16).padStart(2, '0'))
+          .join(' ')}`
+      );
   }
 }
 

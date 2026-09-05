@@ -104,14 +104,29 @@ writes:
 | Writes to                          | K      |
 | ---------------------------------- | ------ |
 | 0, 1, 4-12, 93 (mode, TRS, CC, fsA)| `0x28A`|
+| 128..173 (fsA page-0 midiCodeA tail, slots 6-15) | `0x38B`|
 | 510 (footswitch B)                 | `0x38B`|
 | 927 (footswitch C)                 | `0x18B`|
+| 174..253 (midiCodeB / Bank B of every switch)    | `0x18B`|
 | 23637-23642 (bankMax/group/polarity)| `0x20B`|
 
 All 50+ captured `09 49` writes reproduce bit-perfect with these constants.
 The rule behind the split is not yet understood (it is not a function of
 address alone that we could find; B and C differ despite the same shape).
 `fsD` (1344) has no capture - the implementation groups it with B (`0x38B`).
+
+The `128..173` row and the `0x18B` Bank-B row were found by live K-sweeps,
+not captures:
+
+- fsA page-0 midiCodeA bytes 128..173 (Bank A slots 6-15) are REJECTED with
+  the switch constant `0x28a` (no ACK) but ACKed with `0x38b`, value
+  independent (0 / 1 / 0x7f behave identically). The official app never
+  `09 49`-writes midiCodeA, so its constant was unknown until probed.
+  Boundary probe after the fix: all 16 slots of BOTH banks ACK.
+- Bank B of every switch (block+81..block+160) needs `0x18b`: the switch
+  constant and `0x38b` both drew no response, `0x18b` was ACKed (same value
+  as the footswitch-C block constant). Implemented as
+  `CK_FOOTSWITCH_BANK_B` in `sysex.ts`.
 
 ## Read request layout (20 bytes, corrected)
 
@@ -207,26 +222,85 @@ Consequences:
   (`midiCodeA`). The `complex-3` files with Bank A at blob 174 were produced by
   a different app/build (the Flutter "Midi Suite" has its own codec -
   `sysex_codec.dart`/`FcMidiCodeStruct` in `old-apps/Midi Suite/data/app.so`).
-- **Slot 2+ codec (cracked, verified on-device).** A packed block holds slot 1
-  as an R-codec record at [+2], a constant byte at [+7], then one record per
-  further slot every 5 bytes ([+8], [+13], ...) using a second codec:
+- **Codec2 (marker `0x02` only - supersedes the older "slot 2+ codec" claim).**
+  A clean-state walk (see the marker table below) disproved the earlier claim
+  that every further slot at [+8], [+13], ... uses this codec at a fixed
+  `+5`-per-slot stride: that layout is only valid for records carrying the
+  `0x02` marker (slot indices 1, 8, 15). Formula, with the d2 fix included:
 
   ```
   B0 = (channel & 0xf) << 2
   B1 = (type & 0x7) << 3
   B2 = (data1 & 0x7) << 4                  // data1 bits 0..2
   B3 = (data1 >> 3) | ((data2 & 3) << 5)   // data1 bits 3..6, data2 bits 0..1
-  B4 = data2 >> 2                          // data2 bits 2..6
+  B4 = (data2 >> 2) | (data2 & 0x40)       // d2 bits 2..6, bit 6 duplicated (live find)
   ```
 
-  Verified bit-exact against four live `open-chocolate` reads: expecting
-  `{ch,type,d1,d2}`, the cells `{2,2,40,50}->08 10 00 45 0c`,
-  `{3,1,40,50}->0c 08 00 45 0c`, `{2,1,40,50}->08 08 00 45 0c`,
-  `{2,2,41,50}->08 10 10 45 0c` all decode correctly, and the official app
-  reads the same messages back (`[2] 3 CC 40 50`, `[2] 3 Note ON 41 50`), so
-  the write side is correct and only the read-back decode was missing slots 2+.
-- Caveat: a single-message block may leave stale bytes in the slot-2+ cells, so
-  the UI can show a leftover second message until the block is cleared.
+  The `d2 & 0x40` term was found by live sweep: the device packs d2 bit 6 into
+  B4 bit 6 on top of `d2 >> 2` (d2=71 -> B4=0x51, d2=81 -> 0x54). An earlier
+  `B4 = data2 >> 2` decoded d2 >= 0x20 with garbage upper bits (71 -> 0x144).
+  Decode masks it back off: `d2 = ((B4 & 0x1f) << 2) | ((B3 >> 5) & 3)`. The
+  four originally-verified on-device reads stay valid, but they are codec2
+  evidence, not a blanket slot-2+ layout.
+- Caveat (unchanged): a single-message block may leave stale bytes in the
+  other slots' cells, so the UI can show a leftover message until the block
+  is cleared.
+
+### Bank A slots 2+: the 7-codec marker cycle (live, clean-state walks)
+
+Clearing all 16 slots of fsA page-0 Bank A, then writing each slot one at a
+time from a zero baseline and diffing the packed region, shows records sit at
+FIXED per-slot positions and edit IN PLACE when a value changes - the earlier
+"compaction" hypothesis is REFUTED (the apparent shifting was dirty bank
+state, not compaction). Slot assignment repeats with period 7; each record is
+a single-bit marker byte + content (marker family same as the Bank B type
+markers). For CODE={ch7, NoteON, 93, 71}:
+
+| Marker | Slots (0-based) | Record (marker + content) | Codec |
+| ------ | --------------- | ------------------------- | ----- |
+| `0x02` | 1, 8, 15        | `02 1c 10 50 6b 11`       | codec2 (d2 = (B4&0x1f)<<2 | (B3>>5)&3) |
+| `0x08` | 7, 14           | `08 70 40 40 2e 47`       | R-family (type bit2 -> B2 bit0) |
+| `0x04` | 4, 11           | `04 38 20 20 57 23`       | template (ch<<3, type<<4, ...) |
+| `0x01` | 5, 12           | `01 0e 08 68 75 08`       | ch<<1, type<<2, (d1&f)<<3, d2 in B4/B5 |
+| `0x40` | 2, 9            | `40 00 07 04 74 3a 04` (7B) | ch B1, type<<1 B2, d1<<2, d2<<3 |
+| `0x10` | 3, 10           | `10 60 01 01 5d 0e 01` (7B) | ch bits, type bits, d1 B3, d2<<1 |
+| `0x20` | 6, 13           | `20 40 03 02 3a 1d 02` (7B) | ch bits, type B2, d1<<1, d2<<2 |
+
+Key facts (all verified live against a real device):
+
+- Slot index 0 is the R-codec record (standalone, always reliable) at packed
+  blob 107 (marker `08` + 5 content bytes). Marker by `index % 7`:
+  1->0x02, 2->0x40, 3->0x10, 4->0x04, 5->0x01, 6->0x20, 0->0x08.
+- Record length is marker-dependent (6 bytes for `01/02/04/08`, 7 bytes for
+  `10/20/40`; the extra byte carries d2's high bits). Positions are pinned by
+  live diffing and repeat with period 7:
+  P = [107, 113, 118, 124, 130, 136, 141, 147, 153, 158, 164, 170, 176, 181,
+  187, 193].
+- All 7 family codecs (0x01/0x02/0x04/0x08/0x10/0x20/0x40) are derived and
+  implemented in `sysex.ts` (`decodePackedFamily`/`encodePackedFamily`); a
+  full 16-slot Bank A on fsA decodes 16/16 EXACT through the app decoder
+  (`verify-app-decoder.mjs`). The 0x01 codec carries d2 bits 3..5 in the next
+  slot's marker low bits (marker-OR).
+- Marker-OR: the LAST content byte of a cell is OR'd with the NEXT slot's
+  marker ONLY when that next marker is a high family (>= 0x04); the low
+  markers 0x01/0x02 leave the previous byte as pure data.
+- Occupancy dependence (live fuzz): the fixed positions/codecs are verified
+  for a FULLY-POPULATED bank and SINGLE-slot states. SPARSE/MIXED multi-slot
+  occupancy (2..15 populated, non-contiguous) re-packs and the fixed model
+  decodes wrong. The app therefore guards: when the bank is not full and has
+  more than one populated slot, only slot 0 is decoded; slots 1+ are reported
+  EMpty (honest-empty, same policy as unmapped Bank B cells). The fuzzer
+  targets fs0 and covers full-bank + sparse states; it PASSes with warns for
+  the sparse slots.
+- Type 4 (SysEx) packs correctly in the low families (0x01/0x02/0x04/0x08)
+  but has an UNMAPPED layout in the high families (0x10/0x20/0x40) - the
+  type/channel bits relocate when type >= 4 (live probe). The decoder returns
+  undefined for those instead of fabricating.
+- NOT yet verified: the packed block base for switches B-D. `advPackedBlockBase`
+  (= 106 + sw*480) was derived from the Android struct, but a live probe
+  writing to fs1's logical area did NOT find the expected R-codec anywhere in
+  page 0 - the packed view for sw>=1 may live at a different base/stride. The
+  fuzzer therefore targets fs0 only until this is pinned.
 
 ### Bank B (midiCodeB) write checksum - confirmed live
 

@@ -109,7 +109,8 @@ async function fillEditForm(page, ch, typeName, d1, d2) {
   await sel.nth(0).selectOption({ label: String(ch) }, { timeout: TIMEOUT_MS });
   await sel.nth(1).selectOption({ label: TYPE_LABEL[typeName] }, { timeout: TIMEOUT_MS });
   await sel.nth(2).selectOption({ label: String(d1) }, { timeout: TIMEOUT_MS });
-  if (TYPES[typeName] !== 0) await sel.nth(3).selectOption({ label: String(d2) }, { timeout: TIMEOUT_MS });
+  if (TYPES[typeName] !== 0)
+    await sel.nth(3).selectOption({ label: String(d2) }, { timeout: TIMEOUT_MS });
 }
 
 async function addMessage(page, parts) {
@@ -298,7 +299,9 @@ for (const action of ACTIONS) {
     await runAction(page, action);
   } catch (err) {
     errors.push(`action "${action}": ${err instanceof Error ? err.message : String(err)}`);
-    console.error(`[driver] action failed: ${action} -> ${err instanceof Error ? err.message : err}`);
+    console.error(
+      `[driver] action failed: ${action} -> ${err instanceof Error ? err.message : err}`
+    );
   }
 }
 

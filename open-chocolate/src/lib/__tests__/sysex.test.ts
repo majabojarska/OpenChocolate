@@ -13,15 +13,20 @@ import {
   decodeAddress,
   decodeMidiCodes,
   decodePackedBankBCell,
+  decodePackedFamily,
   decodePackedMidiCode,
   decodePackedMidiCode2,
   encode14,
   encodeAddress,
+  encodePackedFamily,
   encodePackedMidiCode,
   encodePackedMidiCode2,
   footswitchAddr,
   midiCodeAddr,
+  PACKED_SLOT_POS,
   packPackedMode,
+  packedSlotLen,
+  packedSlotMark,
   parseMessage,
   unpackPackedMode,
 } from '../sysex';
@@ -414,5 +419,81 @@ describe('packed Advanced Custom codec', () => {
     expect(decodePackedBankBCell([0x04, 0x00, 0x20, 0x60, 0x46, 0x0e], 2)).toBeNull();
     // A populated FIRST message (different, unmapped layout) must not fabricate.
     expect(decodePackedBankBCell([0x40, 0x00, 0x02, 0x02, 0x64, 0x00], 0)).toBeNull();
+  });
+
+  it('has the full Bank A marker/length/position map', () => {
+    const marks = Array.from({ length: 16 }, (_, i) => packedSlotMark(i));
+    expect(marks).toEqual([
+      0x08, 0x02, 0x40, 0x10, 0x04, 0x01, 0x20, 0x08, 0x02, 0x40, 0x10, 0x04, 0x01, 0x20, 0x08,
+      0x02,
+    ]);
+    const lens = Array.from({ length: 16 }, (_, i) => packedSlotLen(i));
+    expect(lens.slice(0, 7)).toEqual([6, 6, 7, 7, 6, 6, 7]);
+    expect(PACKED_SLOT_POS[0]).toBe(107);
+    expect(PACKED_SLOT_POS[1]).toBe(113);
+    expect(PACKED_SLOT_POS[15]).toBe(193);
+  });
+
+  it('round-trips every Bank A slot codec family with the marker-OR mask', () => {
+    // Each slot's family codec must round-trip encode/decode; the decode
+    // receives the raw content (last byte possibly OR'd with the next mark).
+    for (let i = 0; i < 16; i++) {
+      const mark = packedSlotMark(i);
+      const type = i % 5;
+      const code = {
+        enabled: true,
+        channel: i,
+        type,
+        data1: 10 + i,
+        data2: type === 0 ? 0 : (30 + i) & 0x7f,
+      };
+      // Type 4 in the high families (0x10/0x20/0x40) has an unmapped layout.
+      const highFamily = [0x10, 0x20, 0x40].includes(mark);
+      if (type === 4 && highFamily) continue;
+      const enc = encodePackedFamily(mark, code);
+      expect(enc).not.toBeNull();
+      const content = enc!.slice();
+      // replicate the marker-OR: last content byte OR'd with the next mark
+      // ONLY when the next slot's marker is a high family (>= 0x04).
+      const next = packedSlotMark((i + 1) % 16);
+      if (next >= 0x04 && i <= 14) {
+        content[content.length - 1] |= next & 0x7f;
+      }
+      const dec = decodePackedFamily(mark, content);
+      expect(dec).toEqual(code, `slot ${i} mark ${mark.toString(16)}`);
+    }
+  });
+
+  it('decodes the full live-verified 16-slot Bank A read-back', () => {
+    // The on-device full-bank snapshot (dump-clean.mjs): all 16 slots written
+    // with {ch:i, type:i%5, d1:10+i, d2:(i%5==0?0:30+i)} and re-read. Cells at
+    // PACKED_SLOT_POS with the marker-OR masking. The dump starts at blob 100.
+    const full: number[] = hex(`
+      00 00 00 00 00 00 10 08 00 00 00 05 00 02 04 08 30 61 47 00 02 04 30
+      00 12 60 40 01 0d 42 04 20 40 40 03 11 01 0a 00 78 00 20 00 03 01 20 10
+      09 70 40 40 08 25 02 20 18 20 42 49 00 09 08 4c 38 12 40 02 00 14 00 04
+      58 10 20 45 14 01 18 08 30 21 25 40 06 03 2e 2c 09 60 01 01 0c 2c 02 3c
+      00 10 03 40 00 01 02 2c 30 11 40 40 00 0c 2e 04 18 10 20 03 0c 01 08 04
+      70 10 23 40 02 01 1e 68 08 60 20 00 08 1b
+    `);
+    const blob = (b: number) => full[b - 100];
+    for (let i = 0; i < 16; i++) {
+      const mark = packedSlotMark(i);
+      // Skip the type-4 high-family gap (0x10/0x20/0x40 with type 4).
+      const highFamily = [0x10, 0x20, 0x40].includes(mark);
+      if (highFamily && i % 5 === 4) continue;
+      const len = packedSlotLen(i);
+      const cell: number[] = [];
+      for (let j = 0; j < len; j++) cell.push(blob(PACKED_SLOT_POS[i] + j));
+      const content = cell.slice(1);
+      const next = packedSlotMark((i + 1) % 16);
+      if (next >= 0x04) content[content.length - 1] &= ~next & 0x7f;
+      const dec = decodePackedFamily(mark, content)!;
+      const want = { channel: i, type: i % 5, data1: 10 + i, data2: i % 5 === 0 ? 0 : 30 + i };
+      expect({ channel: dec.channel, type: dec.type, data1: dec.data1, data2: dec.data2 }).toEqual(
+        want,
+        `slot ${i}`
+      );
+    }
   });
 });

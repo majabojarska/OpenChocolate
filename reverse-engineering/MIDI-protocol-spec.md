@@ -241,13 +241,17 @@ all of which reproduce bit-perfect):
 | Address family                                        | K      |
 | ----------------------------------------------------- | ------ |
 | 0, 1, 4-12, 93 (mode, channel, TRS, custom CC, fs A)  | `0x28A`|
+| 128..173 (fsA page-0 midiCodeA tail, slots 6-15)      | `0x38B`| // live K-sweep, see protocol-addendum.md
 | 510 (footswitch B)                                    | `0x38B`|
 | 927 (footswitch C)                                    | `0x18B`|
+| 174..253 (midiCodeB / Bank B of every switch)         | `0x18B`| // live ACK trial, see protocol-addendum.md
 | 23637-23642 (max banks, groups, polarity)             | `0x20B`|
 
 The rule that produces these constants is not yet understood; the constants
 were derived empirically. Footswitch D (1344) has no capture; the reference
-implementation groups it with footswitch B (`0x38B`).
+implementation groups it with footswitch B (`0x38B`). The two rows marked
+"live" come from on-device ACK sweeps rather than captured writes (see
+`protocol-addendum.md` under Checksum constants).
 
 For example, the captured Program Change A message has checksum `74 03`:
 

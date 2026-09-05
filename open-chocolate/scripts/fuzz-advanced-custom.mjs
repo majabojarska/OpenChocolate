@@ -33,6 +33,8 @@ import {
   midiCodeAddr,
   fillPackedMidiCode,
   fillPackedBankBCell,
+  PACKED_SLOT_POS,
+  packedSlotMark,
 } from '../src/lib/sysex.ts';
 import { MODES } from '../src/lib/modes.ts';
 import { RtMidiTransport } from '../src/lib/rtmidi.ts';
@@ -126,9 +128,14 @@ function randomCode(rng) {
 /**
  * Generate one random partial-change plan: a list of { bank, slots: [...] }.
  * Mixes Bank A and Bank B, steps a random footswitch, fills 1..4 slots.
+ *
+ * Only fs0 (footswitch A) is targeted: the packed read-back base for
+ * switches B-D is NOT yet verified (advPackedBlockBase stride 480 was
+ * derived from the Android struct, but live probing shows the packed view
+ * for sw>=1 does not land at 106+480*sw). fs0 is live-verified 16/16.
  */
 function randomPlan(rng) {
-  const footswitch = Math.floor(rng() * 4); // A..D
+  const footswitch = 0;
   const bankCount = 1 + Math.floor(rng() * 2); // 1..2 banks
   const banks = [];
   for (let b = 0; b < bankCount; b++) {
@@ -247,11 +254,13 @@ class ScriptedDeviceTransport {
       let offset;
       let bytes;
       if (bank === 0) {
-        // Bank A packed record: decoder reads slot s at packed block
-        // (s===0 ? 2 : 3+s*5) via decodePackedSlots(base+2).
-        const rec = fillPackedMidiCode(this.cellToCode(fields), slot);
-        offset = base + (slot === 0 ? 2 : 3 + slot * MIDI_CODE_BYTES);
-        bytes = rec;
+        // Bank A packed record at the live-verified per-slot position
+        // (PACKED_SLOT_POS is absolute on the page; rebase to the block).
+        // The record is [marker, 5 content bytes] - prepend the marker.
+        const code = this.cellToCode(fields);
+        const content = fillPackedMidiCode(code, slot);
+        offset = base + (PACKED_SLOT_POS[slot] - 106);
+        bytes = slot === 0 ? [packedSlotMark(0), ...content] : [...content];
       } else {
         // Bank B cell (6 bytes) at packed block +92 (decoder: base+92+s*6).
         const cell = fillPackedBankBCell(this.cellToCode(fields), slot);
@@ -308,14 +317,14 @@ class ScriptedDeviceTransport {
  */
 function verifySlot(bank, slot, written, read) {
   if (bank === 0) {
-    if (slot >= 2) {
-      // Bank A slots 2+ use an unverified state-dependent packed layout on the
-      // live device (positions shift with neighbour presence - see
-      // device.ts decodePackedSlots). They write fine but can't be read back
-      // exactly yet, so treat as unverified.
+    if (slot >= 1) {
+      // Bank A slot 0 (standalone R-codec) is universally reliable; slots
+      // 1+ decode exactly ONLY for a fully-populated bank or single-slot
+      // states. Sparse/mixed multi-slot occupancy re-packs them (live fuzz
+      // found this), so treat as unverified.
       return { ok: true, warn: true };
     }
-    // Bank A slots 0..1: fully verified (R-codec / codec2).
+    // Bank A slot 0: fully verified (R-codec).
     return {
       ok:
         written.enabled === read.enabled &&

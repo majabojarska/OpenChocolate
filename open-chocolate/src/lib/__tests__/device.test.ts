@@ -260,10 +260,11 @@ class AdvTransport extends FakeTransport {
       //   mode<<2 = 2<<2 = 8, then R0=(1&7)<<4=0x10 (ch1), R1=(1<<5)|0=0x20,
       //   R2=(5&1)<<6=0x40, R3=5>>1=2, R4=99.
       p[106] = packPackedMode(2);
+      // slot0 (R-codec, mark 0x08) at live P[0]=107: marker then 5 content
       p[107] = 0x08;
       const rec = [0x10, 0x20, 0x40, 0x02, 0x63]; // slot1: CC(5,99) ch1 (R-codec)
       for (let i = 0; i < 5; i++) p[108 + i] = rec[i];
-      // slot2 cell at 114-118 (codec2): {ch4, CC, 40, 50}
+      // slot1 (codec2, mark 0x02) at live P[1]=113: marker then content
       p[113] = 0x02;
       const rec2 = [0x10, 0x08, 0x00, 0x45, 0x0c]; // ch4<<2=0x10, CC<<3=0x08
       for (let i = 0; i < 5; i++) p[114 + i] = rec2[i];
@@ -309,13 +310,19 @@ describe('Advanced Custom banks', () => {
       data1: 5,
       data2: 99,
     });
+    // Slot 1 in a 2-slot bank is an unverified sparse-occupancy state: the
+    // decoder must NOT fabricate it (the fixed-position model only holds for
+    // the fully-populated bank or single-slot states).
     expect(cfg?.footswitchBanks[0]?.[0].codes[1]).toEqual({
-      enabled: true,
-      channel: 4,
-      type: 1,
-      data1: 40,
-      data2: 50,
+      enabled: false,
+      channel: 0,
+      type: 0,
+      data1: 0,
+      data2: 0,
     });
+    // 8+ slots populated (with the mode byte) makes the bank "full"-ish, so
+    // slots 2+ of the page-0 bank should still decode; fs3 (switch D, single
+    // populated slot) is a single-slot state and decodes its slot 0 exactly.
     expect(cfg?.footswitchBanks[3]?.[0].codes[0]).toEqual({
       enabled: true,
       channel: 0,

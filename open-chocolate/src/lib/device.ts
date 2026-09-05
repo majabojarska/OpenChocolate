@@ -28,11 +28,14 @@ import {
   buildReadRequest,
   CUSTOM_CC_BANKS,
   decodePackedMidiCode,
-  decodePackedMidiCode2,
+  decodePackedFamily,
   decodePackedBankBCell,
   footswitchAddr,
   MIDI_CODE_SLOTS,
   midiCodeAddr,
+  PACKED_SLOT_POS,
+  packedSlotLen,
+  packedSlotMark,
   parseMessage,
   SYSEX_END,
   SYSEX_START,
@@ -808,7 +811,7 @@ export class CommsService {
         emptyFootswitchBank(),
         emptyFootswitchBank(),
       ];
-      const codes = this.decodePackedSlots(pages, base + 2);
+      const codes = this.decodePackedSlots(pages, base);
       banks[0] = {
         codes: Array.from({ length: MIDI_CODE_SLOTS }, (_, i) => codes[i] ?? defaultMidiCode()),
       };
@@ -847,19 +850,16 @@ export class CommsService {
   }
 
   /**
-   * Decode the packed slot records of a block: slot 0 (index 0) at `base`
-   * with the R-codec, slot 1 (index 1) at `base+6` with codec2. Both are
-   * verified bit-exact on a live device.
+   * Decode the packed slot records of a block (Bank A).
    *
-   * Slots 2+ DO exist in the packed read (they carry data on the device) but
-   * their record layout is a state-dependent / compacted structure: the
-   * record position shifts when neighbouring slots' presence changes (probed
-   * live: slot 4's record sits at blob 128 with only slots 0-3 present, at
-   * 130 with slot 3 present, and its content bytes follow
-   * [ch<<3][type<<4][(d1&3)<<5][d1>>2|((d2&1)<<6)][d2>>1] with a link byte
-   * that varies by state). Falsely decoding them with the fixed-offset codec2
-   * produces fabricated values, so they are reported as ABSENT until the
-   * compaction rule is derived (same policy as the unmapped Bank B cells).
+   * Each slot i has a FIXED record position (PACKED_SLOT_POS) and a per-slot
+   * marker (PACKED_SLOT_MARK, period 7). Record = [marker, content bytes]
+   * with 6-byte cells (markers 1/2/4/8) or 7-byte cells (10/20/40). The
+   * LAST content byte is OR'd with the NEXT slot's marker, so it is masked
+   * off before decoding. Slot 0 uses the R-codec (marker 0x08) at P[0].
+   *
+   * Live-verified: a full 16-slot bank decodes 16/16 exact (see
+   * protocol-addendum.md).
    *
    * Records that are all-zero are treated as absent.
    */
@@ -867,32 +867,84 @@ export class CommsService {
     pages: Map<number, Uint8Array>,
     base: number
   ): (MidiCode | undefined)[] {
+    // First pass: determine occupancy. The fixed-position model was verified
+    // for a FULLY-POPULATED bank (all 16 slots) and single-slot states, but
+    // live fuzzing found sparse/mixed multi-slot states re-pack (occupancy-
+    // dependent), so only trust the family decodes when the bank is full or
+    // has a single populated slot; otherwise report slots 2+ empty rather
+    // than fabricate values.
+    const populated: boolean[] = [];
+    let count = 0;
+    for (let s = 0; s < MIDI_CODE_SLOTS; s++) {
+      const len = packedSlotLen(s);
+      const pos = PACKED_SLOT_POS[s] - 106;
+      let any = false;
+      for (let f = 0; f < len; f++) {
+        const v = this.blobByte(pages, base + pos + f);
+        if (v === null) return [];
+        if (v !== 0) any = true;
+      }
+      populated[s] = any;
+      if (any) count++;
+    }
+    const fullBank = count >= 16;
+    if (!fullBank && count > 1) {
+      // Sparse/mixed occupancy: only slot 0 (standalone R-codec) is
+      // trustworthy; slots 1+ re-pack with occupancy (live-verified).
+      const slots: (MidiCode | undefined)[] = [];
+      for (let s = 0; s < MIDI_CODE_SLOTS; s++) {
+        if (s >= 1) {
+          slots.push(undefined);
+          continue;
+        }
+        const len = packedSlotLen(s);
+        const pos = PACKED_SLOT_POS[s] - 106;
+        const cell = new Array<number>(len);
+        let present = false;
+        for (let f = 0; f < len; f++) {
+          const v = this.blobByte(pages, base + pos + f);
+          if (v === null) return slots;
+          cell[f] = v;
+          present ||= v !== 0;
+        }
+        if (!present) {
+          slots.push(undefined);
+          continue;
+        }
+        const content = cell.slice(1);
+        const code = decodePackedMidiCode(content);
+        if (code && code.channel <= 15 && code.type <= 4) slots.push(code);
+        else slots.push(undefined);
+      }
+      return slots;
+    }
     const slots: (MidiCode | undefined)[] = [];
     for (let s = 0; s < MIDI_CODE_SLOTS; s++) {
-      if (s >= 2) {
-        slots.push(undefined); // slots 2+: layout not derived (see above)
+      if (!populated[s]) {
+        slots.push(undefined);
         continue;
       }
-      // slot0: base; slot1: constant byte at base+5, record at base+6..+10.
-      const off = s === 0 ? base : base + 1 + s * 5;
-      const rec = new Array<number>(5);
-      let present = false;
-      for (let f = 0; f < 5; f++) {
-        const v = this.blobByte(pages, off + f);
+      const mark = packedSlotMark(s);
+      const len = packedSlotLen(s);
+      const pos = PACKED_SLOT_POS[s] - 106;
+      const cell = new Array<number>(len);
+      for (let f = 0; f < len; f++) {
+        const v = this.blobByte(pages, base + pos + f);
         if (v === null) return slots;
-        rec[f] = v;
-        present ||= v !== 0;
+        cell[f] = v;
       }
-      if (!present) {
+      const content = cell.slice(1);
+      const nextMark = packedSlotMark(s + 1);
+      if (nextMark >= 0x04) {
+        const last = content.length - 1;
+        content[last] &= ~nextMark & 0x7f;
+      }
+      const code = s === 0 ? decodePackedMidiCode(content) : decodePackedFamily(mark, content);
+      if (code && code.channel <= 15 && code.type <= 4) {
+        slots.push(code);
+      } else {
         slots.push(undefined);
-        continue;
       }
-      const code = s === 0 ? decodePackedMidiCode(rec) : decodePackedMidiCode2(rec);
-      if (code.channel > 15 || code.type > 4) {
-        slots.push(undefined);
-        continue;
-      }
-      slots.push(code);
     }
     return slots;
   }
