@@ -67,6 +67,28 @@ MODE_SWITCH_BYTES = {
     0x0240: "D",  # 02 40
 }
 
+# Device-mode selector for op 0x49: bytes 8..9 = 02 00 means the mode byte
+# (17) selects the DEVICE mode (not a footswitch mode).
+DEVICE_MODE_SELECTOR = 0x0200
+
+# device mode byte (index 17) <-> device mode name (op 0x49, selector 02 00).
+# From the device-mode sweep capture midi_20260905_232844.log.
+DEVICE_MODE_BYTE_TO_NAME = {
+    0x00: "program_change_a",
+    0x01: "program_change_b",
+    0x02: "custom",
+    0x03: "advanced_custom",
+    0x04: "manufacturer_control",
+    0x05: "touch_screen_android",
+    0x06: "video_control",
+    0x07: "keyboard_a",
+    0x08: "keyboard_b",
+    0x09: "multimedia_keyboard",
+    0x0A: "custom_keyboard",
+    0x0B: "mix",
+    0x0C: "speaker",
+}
+
 # Init/discovery handshake (register read protocol):
 #   app -> dev read request: F0 00 32 0D 41 00 00 00 02 <a> <b> <c>
 #                             00 00 10 7E 00 00 <v> 00 F7
@@ -144,15 +166,21 @@ def decode_sysex(b: bytes) -> dict[str, object]:
                 if d2 is not None:
                     info["data2"] = d2
         elif family == 0x49:
-            # Footswitch mode select: byte 17 encodes the mode; bytes 8..9
-            # identify the targeted foot switch.
+            # Mode select: byte 17 encodes the mode; bytes 8..9 select the
+            # target — a footswitch (02 5D-family) or the DEVICE mode
+            # (02 00).
             info["op"] = "49"
             info["op_name"] = "mode"
             info["off"] = f"{b[10]:02X}"
-            sw = MODE_SWITCH_BYTES.get((b[8] << 8) | b[9], "?")
-            info["switch"] = sw
-            if len(b) >= 18:
-                info["mode"] = MODE_BYTE_TO_NAME.get(b[17], f"0x{b[17]:02X}")
+            if (b[8] << 8) | b[9] == DEVICE_MODE_SELECTOR:
+                info["switch"] = "device"
+                if len(b) >= 18:
+                    info["mode"] = DEVICE_MODE_BYTE_TO_NAME.get(b[17], f"0x{b[17]:02X}")
+            else:
+                sw = MODE_SWITCH_BYTES.get((b[8] << 8) | b[9], "?")
+                info["switch"] = sw
+                if len(b) >= 18:
+                    info["mode"] = MODE_BYTE_TO_NAME.get(b[17], f"0x{b[17]:02X}")
     elif b[3] == 0x0D:
         # Init/discovery register-read protocol.
         if b[4] == READ_REQUEST_FAM and len(b) >= 21:

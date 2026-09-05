@@ -37,6 +37,7 @@ python3 choco.py close-editor           # (alt) close FootCtrlPlus via Escape
 python3 choco.py close-launchpad        # close the CubeSuite launchpad (exits the app) (648,13)
 python3 choco.py switch A               # select foot switch A/B/C/D
 python3 choco.py footswitch-mode single_step_double_bank   # select a footswitch mode radio (per foot switch)
+python3 choco.py device-mode advanced_custom             # select a device mode radio (one at a time)
 python3 choco.py remove-all             # clear the mapped events list
 python3 choco.py add                    # append a new event to the list
 python3 choco.py click <name>           # generic: click any named coordinate
@@ -49,6 +50,13 @@ how many banks are configurable — 1 or 2): `single_step_single_bank`,
 `long_step_single_bank`, `step_short_or_long_double_bank`. Bank A events
 are shared across all modes; Bank B events are shared across all
 double-bank modes.
+
+Device modes (radio group, how the whole device operates; one at a time;
+distinct from footswitch mode): `program_change_a`, `program_change_b`,
+`custom`, `advanced_custom` (the only one exposing granular footswitch
+mode/bank config), `manufacturer_control`, `touch_screen_android`,
+`video_control`, `keyboard_a`, `keyboard_b`, `multimedia_keyboard`,
+`custom_keyboard`, `mix`, `speaker`.
 
 ## Filling in the coordinates
 

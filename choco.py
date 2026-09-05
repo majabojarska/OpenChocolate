@@ -58,6 +58,26 @@ FOOTSWITCH_MODES = {
     "step_short_or_long_double_bank": (609, 356, 2),  # 2 banks
 }
 
+# Device mode radios — how the DEVICE operates as a whole (distinct from
+# footswitch mode). One device mode at a time. x, y on FootCtrlPlus.
+# "Advanced Custom" is the only mode exposing granular footswitch
+# mode/bank (MIDI events in Bank A/B) configuration.
+DEVICE_MODES = {
+    "program_change_a": (38, 233),
+    "program_change_b": (298, 233),
+    "custom": (38, 269),
+    "advanced_custom": (298, 269),
+    "manufacturer_control": (38, 303),
+    "touch_screen_android": (298, 304),
+    "video_control": (38, 343),
+    "keyboard_a": (298, 343),
+    "keyboard_b": (38, 383),
+    "multimedia_keyboard": (298, 383),
+    "custom_keyboard": (38, 423),
+    "mix": (298, 423),
+    "speaker": (38, 463),
+}
+
 # Window-relative click coordinates (x, y) in pixels.
 # TODO: fill in real values (uncertain ones are still placeholders).
 COORDS = {
@@ -72,6 +92,8 @@ COORDS = {
     "add": (650, 600),  # TODO: "Add" button
     # legacy alias for single_step_double_bank (same radio)
     "mode_single_step_two_banks": (609, 256),
+    # device mode radio buttons
+    **DEVICE_MODES,
     # window close buttons (title bar)
     "close_footctrlplus": (1250, 17),
     "close_launchpad": (648, 13),
@@ -90,6 +112,8 @@ ACTION_WINDOW = {
     # footswitch mode radio buttons + legacy alias
     **dict.fromkeys(FOOTSWITCH_MODES, "footctrlplus"),
     "mode_single_step_two_banks": "footctrlplus",
+    # device mode radio buttons
+    **dict.fromkeys(DEVICE_MODES, "footctrlplus"),
     "close_editor": "footctrlplus",
     "open_edit": "footctrlplus",
     "close_footctrlplus": "footctrlplus",
@@ -113,6 +137,8 @@ DISPLAY = {
     # footswitch mode radio buttons; display names use dashes
     **{mode: mode.replace("_", "-") for mode in FOOTSWITCH_MODES},
     "mode_single_step_two_banks": "mode-single-step-two-banks",
+    # device mode radio buttons; same dashed convention
+    **{mode: mode.replace("_", "-") for mode in DEVICE_MODES},
     "close_editor": "close-editor",
     "open_edit": "open-edit",
     "close_footctrlplus": "close-footctrlplus",
@@ -667,6 +693,27 @@ def set_footswitch_mode(mode: str) -> int:
     return 0
 
 
+def set_device_mode(mode: str) -> int:
+    """Select a device mode radio button (see DEVICE_MODES).
+
+    Device mode controls how the device operates as a whole (distinct from
+    footswitch mode). Only one device mode can be enabled at a time.
+    """
+    if mode not in DEVICE_MODES:
+        print(
+            f"set_device_mode: unknown mode {mode!r}; known: {', '.join(DEVICE_MODES)}",
+            file=sys.stderr,
+        )
+        return 1
+    wid = require(mode)  # mode name doubles as the gated action name
+    if wid is None:
+        return 1
+    x, y = DEVICE_MODES[mode]
+    click(wid, x, y)
+    print(f"device-mode: {mode} selected at ({x}, {y})")
+    return 0
+
+
 def close_editor() -> int:
     """Close FootCtrlPlus via the Escape key."""
     return cmd_close_editor()
@@ -796,6 +843,13 @@ def main(argv=None) -> int:
     )
     p_fsm.add_argument("mode", choices=sorted(FOOTSWITCH_MODES))
 
+    p_dm = sub.add_parser(
+        "device-mode",
+        help="select a device mode radio button (how the device operates "
+        "as a whole; one at a time)",
+    )
+    p_dm.add_argument("mode", choices=sorted(DEVICE_MODES))
+
     p_remove = sub.add_parser("remove-all", help="click 'Remove all' on FootCtrlPlus")
     p_remove.add_argument(
         "--absolute",
@@ -894,6 +948,8 @@ def main(argv=None) -> int:
         return switch(args.foot, args.absolute, bank=args.bank)
     if args.command in ("footswitch-mode", "mode"):
         return set_footswitch_mode(args.mode)
+    if args.command == "device-mode":
+        return set_device_mode(args.mode)
     if args.command == "remove-all":
         return remove_all(args.absolute, bank=args.bank)
     if args.command == "add":

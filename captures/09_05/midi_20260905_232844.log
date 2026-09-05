@@ -1,0 +1,37 @@
+# choco midi capture 2026-09-05 23:28:44
+# port: 16:0 SINCO (SINCO MIDI 1)
+# port: 128:0 WINE midi driver (WINE ALSA Output #6)
+# cmd: aseqdump -p 16:0 | aseqdump -p 128:0
+--
+# port: 16:0 SINCO
+# port: 128:0 WINE midi driver
+Waiting for data. Press Ctrl+C to end.
+Source  Event                  Ch  Data
+Waiting for data. Press Ctrl+C to end.
+Source  Event                  Ch  Data
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 00 74 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 01 72 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 02 70 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 03 6E 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 04 6C 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 05 6A 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 06 68 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 07 66 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 08 64 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 09 62 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0A 60 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0B 5E 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7
+128:0   System exclusive           F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 0C 5C 03 F7
+ 16:0   System exclusive           F0 00 32 01 08 00 00 00 00 7F 01 F7

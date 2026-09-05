@@ -2,6 +2,28 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Device mode controls (2026-09-05)
+
+### Harness
+- Added `DEVICE_MODES`: 13 device-mode radio buttons on FootCtrlPlus
+  (x,y coords per the task spec), one per device mode. Wired into
+  `COORDS`/`ACTION_WINDOW`/`DISPLAY`; new CLI `choco.py device-mode <mode>`
+  and importable `set_device_mode(mode)`, gated on `footctrlplus`.
+- Operator-verified enablement of all 13 device modes sequentially (each
+  confirmed in FootCtrlPlus).
+
+### Protocol (goal 3) — capture `captures/09_05/midi_20260905_232844.log`
+
+Device-mode select uses the same 21-byte `49` mode-select frame as
+footswitch modes, but selector bytes `02 00` (footswitch modes use
+`02 5D`-family):
+`F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 <MODE> <CHK1> <CHK2> F7`
+
+- Mode byte (17): `00`..`0C` in sweep order (program_change_a .. speaker).
+- Checksum: `74 03`..`5C 03`, CHK1 decrements by 2 per mode, CHK2 = `03`.
+- `trace.py` now decodes these as `sw=device` + the mode name
+  (`DEVICE_MODE_SELECTOR`, `DEVICE_MODE_BYTE_TO_NAME`); spec §2e documents it.
+
 ## Task — Python static analysis & formatting (ruff) (2026-09-05)
 
 - Added `pyproject.toml` with a ruff config (line-length 88, py39 target,

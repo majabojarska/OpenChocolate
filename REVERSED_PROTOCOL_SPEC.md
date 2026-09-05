@@ -143,6 +143,41 @@ Within a footswitch, `CHK1` decrements by 2 per mode step; across switches
 it jumps (selector-dependent). The remaining non-constant byte is index
 `10` (`00`, `03`, `07`, `0A` — also per switch).
 
+### 2e. Device mode select (op `49`, selector `02 00`) — SOLVED
+
+Device mode (how the device operates as a whole — distinct from footswitch
+mode; only one enabled at a time) uses the same 21-byte `49` frame but with
+selector bytes `02 00` (vs the footswitch selectors above):
+
+```
+F0 00 32 09 49 00 00 00 02 00 00 00 00 10 00 00 00 <MODE> <CHK1> <CHK2> F7
+```
+
+Capture: 13 modes, one message each
+(`captures/09_05/midi_20260905_232844.log`); `trace.py` labels these
+`sw=device` + the mode name.
+
+Mode byte `17`:
+
+| value | device mode |
+|---|---|
+| `00` | `program_change_a` |
+| `01` | `program_change_b` |
+| `02` | `custom` |
+| `03` | `advanced_custom` (granular footswitch/bank config) |
+| `04` | `manufacturer_control` |
+| `05` | `touch_screen_android` |
+| `06` | `video_control` |
+| `07` | `keyboard_a` |
+| `08` | `keyboard_b` |
+| `09` | `multimedia_keyboard` |
+| `0A` | `custom_keyboard` |
+| `0B` | `mix` |
+| `0C` | `speaker` |
+
+Checksums (mode → `CHK1 CHK2`): `74 03`, `72 03`, `70 03`, `6E 03`, …,
+`5C 03` — `CHK1` decrements by 2 per mode step, `CHK2` stays `03`.
+
 Device → host ACK:
 
 ```
