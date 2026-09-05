@@ -38,6 +38,7 @@ python3 choco.py close-launchpad        # close the CubeSuite launchpad (exits t
 python3 choco.py switch A               # select foot switch A/B/C/D
 python3 choco.py switch get             # detect the selected footswitch (requires Advanced Custom)
 python3 choco.py footswitch-mode single_step_double_bank   # select a footswitch mode radio (per foot switch)
+python3 choco.py footswitch-mode get                       # detect the enabled footswitch mode (current footswitch)
 python3 choco.py device-mode advanced_custom             # select a device mode radio (one at a time)
 python3 choco.py device-mode get                          # detect the enabled device mode (white-dot radio)
 python3 choco.py trs-jack-mode expression_pedal          # select TRS jack mode (expression pedal / trs-midi)
@@ -54,7 +55,8 @@ how many banks are configurable — 1 or 2): `single_step_single_bank`,
 `single_step_double_bank`, `press_down_release_double_bank`,
 `long_step_single_bank`, `step_short_or_long_double_bank`. Bank A events
 are shared across all modes; Bank B events are shared across all
-double-bank modes.
+double-bank modes. `footswitch-mode get` detects the enabled mode for the
+currently-selected footswitch (requires `advanced_custom`).
 
 Device modes (radio group, how the whole device operates; one at a time;
 distinct from footswitch mode): `program_change_a`, `program_change_b`,

@@ -850,6 +850,31 @@ def detect_footswitch(
     return _detect_radio_group(FOOTSWITCH_TABS, "footswitch", box=40, x_off=0)
 
 
+# Footswitch-mode radios are (name -> (x, y, banks)); strip to (x, y) for
+# the detector, which reads the mode of the currently-selected footswitch.
+FOOTSWITCH_MODE_RADIOS = {n: (x, y) for n, (x, y, _) in FOOTSWITCH_MODES.items()}
+
+
+def detect_footswitch_mode(
+    require_advanced_custom: bool = True,
+) -> tuple[str | None, list[str]]:
+    """Detect the enabled footswitch mode for the current footswitch.
+
+    Requires device mode "Advanced Custom". The mode radios are per
+    footswitch; this reads whichever footswitch is currently selected.
+    Errors if 0 or >1 modes look enabled.
+    """
+    if require_advanced_custom:
+        dmode, dprobs = detect_device_mode()
+        if dprobs or dmode != "advanced_custom":
+            return None, [
+                "advanced_custom device mode not enabled "
+                f"(detected={dmode}, problems={dprobs})"
+            ]
+    return _detect_radio_group(FOOTSWITCH_MODE_RADIOS, "footswitch-mode")
+    return _detect_radio_group(FOOTSWITCH_TABS, "footswitch", box=40, x_off=0)
+
+
 # Polarity reversal toggle colors (FootCtrlPlus, at 248,76):
 #   off = dark   #08251d
 #   on  = bright #33eab8
@@ -1147,9 +1172,16 @@ def main(argv=None) -> int:
     p_fsm = sub.add_parser(
         "footswitch-mode",
         aliases=["mode"],
-        help="select a footswitch mode radio button (per foot switch)",
+        help="select a footswitch mode radio button (per foot switch), or "
+        "'get' to detect the enabled one for the current footswitch",
     )
-    p_fsm.add_argument("mode", choices=sorted(FOOTSWITCH_MODES))
+    p_fsm.add_argument(
+        "mode",
+        nargs="?",
+        default="set",
+        choices=["set", "get"] + sorted(FOOTSWITCH_MODES),
+        help="'get' (detect), 'set' (show choices), or a mode name",
+    )
 
     p_dm = sub.add_parser(
         "device-mode",
@@ -1310,6 +1342,16 @@ def main(argv=None) -> int:
             return 0
         return switch(args.foot, args.absolute, bank=args.bank)
     if args.command in ("footswitch-mode", "mode"):
+        if args.mode == "get":
+            mode, problems = detect_footswitch_mode()
+            if problems:
+                print(
+                    f"footswitch-mode get: detection problem: {'; '.join(problems)}",
+                    file=sys.stderr,
+                )
+                return 1
+            print(f"footswitch-mode: {mode} enabled")
+            return 0
         return set_footswitch_mode(args.mode)
     if args.command == "device-mode":
         if args.mode == "get":

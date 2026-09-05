@@ -2,6 +2,16 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Detect footswitch mode (2026-09-05)
+
+- `FOOTSWITCH_MODE_RADIOS` (strip banks from the 3-tuples) +
+  `detect_footswitch_mode()` + CLI `footswitch-mode get`: detects the
+  enabled footswitch mode for the currently-selected footswitch (white
+  marker scan, shared `_detect_radio_group`); requires `advanced_custom`
+  device mode (guard verified).
+- Self-verified: 4 footswitches × 5 modes = 20/20 detected correctly;
+  guard errors under `speaker`.
+
 ## Task — Detect footswitch selection (2026-09-05)
 
 - Extend the white-marker detector: `_detect_radio_group` gains a `box`
