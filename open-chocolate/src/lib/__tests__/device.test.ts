@@ -7,6 +7,7 @@ import {
   buildConfigWrite,
   decodeAddress,
   midiCodeAddr,
+  packPackedMode,
   SYSEX_END,
   SYSEX_START,
 } from '../sysex';
@@ -254,29 +255,32 @@ class AdvTransport extends FakeTransport {
     if (pageId === 0) {
       const p = new Uint8Array(1153);
       p[0] = 3; // Advanced Custom mode
-      // usr page 0, switch A block at blob 93: mode 2 (press-release),
-      // midiCodeA slot 0 = enabled CC(5, 99) on channel 1.
-      p[93] = 2;
-      p[94] = 1; // enable
-      p[95] = 1; // channel
-      p[96] = 1; // type CC
-      p[97] = 5; // data1
-      p[98] = 99; // data2
+      // usr page 0, switch A packed block at 106: mode 2 (press-release) and
+      // one bank-A code = enabled CC(5,99) on channel 1:
+      //   mode<<2 = 2<<2 = 8, then R0=(1&7)<<4=0x10 (ch1), R1=(1<<5)|0=0x20,
+      //   R2=(5&1)<<6=0x40, R3=5>>1=2, R4=99.
+      p[106] = packPackedMode(2);
+      p[107] = 0x08;
+      const rec = [0x10, 0x20, 0x40, 0x02, 0x63]; // slot1: CC(5,99) ch1 (R-codec)
+      for (let i = 0; i < 5; i++) p[108 + i] = rec[i];
+      // slot2 cell at 114-118 (codec2): {ch4, CC, 40, 50}
+      p[113] = 0x02;
+      const rec2 = [0x10, 0x08, 0x00, 0x45, 0x0c]; // ch4<<2=0x10, CC<<3=0x08
+      for (let i = 0; i < 5; i++) p[114 + i] = rec2[i];
       return Array.from(p);
     }
     if (pageId === 1009) {
-      // Response 1 = blob 1153..2305 (contiguous chunks, not request-aligned):
-      // switch D block at 1344: mode 3 (long press), midiCodeB slot 0 =
-      // enabled PC(7) ch0.
+      // Response 1 = blob 1153..2305: switch D packed block at 106 + 3*480 = 1546
+      // (mode 3 long press) with one bank-A code = enabled PC(7) ch0.
       const p = new Uint8Array(1153);
-      p[1344 - 1153] = 3;
-      p[1425 - 1153] = 1; // midiCodeB[0].enable (block+81)
-      p[1428 - 1153] = 7; // data1 = PC value
+      const base = 1546 - 1153;
+      p[base] = packPackedMode(3);
+      p[base + 1] = 0x08;
+      const rec = [0x00, 0x00, 0x40, 0x03, 0x00]; // PC(0) ch0 d1=7
+      for (let i = 0; i < 5; i++) p[base + 2 + i] = rec[i];
       return Array.from(p);
     }
     if (pageId === 23 * 1009) {
-      // Final 0D 79 record = blob 23145..23645: the live system block ends
-      // at the blob end (polarity at blob 23642 = payload offset 497).
       const p = new Uint8Array(501);
       const off = ADDR.polarity - CONFIG_TAIL_START; // 497
       p[ADDR.maxBanksPcA - CONFIG_TAIL_START] = 3; // maxBanksPcA = 3+1 = 4
@@ -305,8 +309,14 @@ describe('Advanced Custom banks', () => {
       data1: 5,
       data2: 99,
     });
-    expect(cfg?.footswitchBanks[0]?.[0].codes[1].enabled).toBe(false);
-    expect(cfg?.footswitchBanks[3]?.[1].codes[0]).toEqual({
+    expect(cfg?.footswitchBanks[0]?.[0].codes[1]).toEqual({
+      enabled: true,
+      channel: 4,
+      type: 1,
+      data1: 40,
+      data2: 50,
+    });
+    expect(cfg?.footswitchBanks[3]?.[0].codes[0]).toEqual({
       enabled: true,
       channel: 0,
       type: 0,
@@ -343,6 +353,32 @@ describe('Advanced Custom banks', () => {
       channel: 2,
       type: 1,
       data1: 93,
+      data2: 0,
+    });
+  });
+
+  it('forces data 2 to zero for PC messages on write', async () => {
+    const transport = new FakeTransport();
+    const comms = makeService(transport);
+    await comms.scan();
+    await comms.connect(pair.key);
+
+    // A PC message (type 0) with a spurious data 2 must be zeroed when stored.
+    await comms.setFootswitchMidiCode(0, 0, 0, 3, {
+      enabled: true,
+      channel: 4,
+      type: 0,
+      data1: 7,
+      data2: 99,
+    });
+
+    const base = midiCodeAddr(0, 0, 0, 3, 0);
+    expect(transport.sent.at(-2)).toEqual(buildConfigWrite(base + 4, 0)); // data2 forced to 0
+    expect(comms.getConnected()?.config.footswitchBanks[0]?.[0].codes[3]).toEqual({
+      enabled: true,
+      channel: 4,
+      type: 0,
+      data1: 7,
       data2: 0,
     });
   });

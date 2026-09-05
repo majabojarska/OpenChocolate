@@ -129,6 +129,9 @@ function setDraft(ev: Event, field: 'channel' | 'type' | 'data1' | 'data2', mask
   const draft = editing.value?.draft;
   if (!draft) return;
   draft[field] = Number((ev.target as HTMLInputElement).value) & mask;
+  // PC (type 0) messages have no data 2 - it is always 0. Switching to PC
+  // clears a leftover value so the UI never carries one into the device.
+  if (field === 'type' && draft.type === 0) draft.data2 = 0;
 }
 </script>
 
@@ -268,7 +271,7 @@ function setDraft(ev: Event, field: 'channel' | 'type' | 'data1' | 'data2', mask
           <option v-for="d in dataRange" :key="d" :value="d">{{ d }}</option>
         </select>
       </label>
-      <label class="field">
+      <label v-if="editing.draft.type !== 0" class="field">
         <span>Data 2</span>
         <select
           class="control"

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ADDR,
   advCustomBlockAddr,
+  advPackedBlockBase,
   buildBankClearWrite,
   buildConfigWrite,
   buildDiscoveryRequest,
@@ -11,11 +12,18 @@ import {
   decode14,
   decodeAddress,
   decodeMidiCodes,
+  decodePackedBankBCell,
+  decodePackedMidiCode,
+  decodePackedMidiCode2,
   encode14,
   encodeAddress,
+  encodePackedMidiCode,
+  encodePackedMidiCode2,
   footswitchAddr,
   midiCodeAddr,
+  packPackedMode,
   parseMessage,
+  unpackPackedMode,
 } from '../sysex';
 
 const hex = (s: string) =>
@@ -42,6 +50,20 @@ describe('checksum', () => {
     expect(checksumConstantFor(footswitchAddr(0, 2))).toBe(0x18b);
     expect(checksumConstantFor(ADDR.polarity)).toBe(0x20b);
     expect(checksumConstantFor(ADDR.maxGroupCount)).toBe(0x20b);
+  });
+
+  it('uses the Bank-B constant for the midiCodeB region (device-ACKed)', () => {
+    // midiCodeB region = block+81..block+160; the device ACKs 09 49 writes
+    // there with 0x18b (verified live: 0x38b drew no response, 0x18b did).
+    expect(checksumConstantFor(174)).toBe(0x18b); // fsA Bank B isEnable
+    expect(checksumConstantFor(175)).toBe(0x18b); // fsA Bank B channel
+    expect(checksumConstantFor(253)).toBe(0x18b); // fsA Bank B last code byte
+    expect(checksumConstantFor(254)).toBe(0x28a); // sysExA keeps switch const
+    // Bank A (midiCodeA) is NOT affected.
+    expect(checksumConstantFor(94)).toBe(0x28a);
+    // Same region on the other switches.
+    expect(checksumConstantFor(510 + 81)).toBe(0x18b); // fsB Bank B
+    expect(checksumConstantFor(927 + 81)).toBe(0x18b); // fsC Bank B
   });
 
   it('applies the switch constant to every byte of a switch block', () => {
@@ -289,5 +311,84 @@ describe('parsing', () => {
 
   it('falls back to other for unknown frames', () => {
     expect(parseMessage([0xf0, 0x00, 0x32, 0x01, 0x02, 0xf7]).kind).toBe('other');
+  });
+});
+
+describe('packed Advanced Custom codec', () => {
+  it('round-trips mode via the <<2 packed encoding', () => {
+    for (const mode of [0, 1, 2, 3, 4]) {
+      expect(unpackPackedMode(packPackedMode(mode))).toBe(mode);
+    }
+  });
+
+  it('reproduces the captured single-message records bit-exact', () => {
+    // (label, logical, packed R0..R4) from the GroupA-D captures.
+    const cases: Array<[string, [number, number, number, number], number[]]> = [
+      ['A2 data1=1', [0, 1, 1, 0], [0x00, 0x20, 0x40, 0x00, 0x00]],
+      ['A3 data1=64', [0, 1, 64, 0], [0x00, 0x20, 0x00, 0x20, 0x00]],
+      ['A4 data1=127', [0, 1, 127, 0], [0x00, 0x20, 0x40, 0x3f, 0x00]],
+      ['B1 data2=1', [0, 1, 64, 1], [0x00, 0x20, 0x00, 0x20, 0x01]],
+      ['B2 data2=127', [0, 1, 64, 127], [0x00, 0x20, 0x00, 0x20, 0x7f]],
+      ['C1 type=NoteON', [0, 2, 64, 0], [0x00, 0x40, 0x00, 0x20, 0x00]],
+      ['C2 type=NoteOFF', [0, 3, 64, 0], [0x00, 0x60, 0x00, 0x20, 0x00]],
+      ['D1 ch15', [15, 1, 64, 0], [0x70, 0x21, 0x00, 0x20, 0x00]],
+    ];
+    for (const [label, [ch, type, d1, d2], rec] of cases) {
+      const expected = { enabled: true, channel: ch, type, data1: d1, data2: d2 };
+      expect(
+        encodePackedMidiCode({ enabled: true, channel: ch, type, data1: d1, data2: d2 })
+      ).toEqual(rec, label);
+      expect(decodePackedMidiCode(rec)).toEqual(expected, label);
+    }
+  });
+
+  it('places the packed switch blocks at the expected addresses', () => {
+    expect(advPackedBlockBase(0, 0)).toBe(106);
+    expect(advPackedBlockBase(0, 1)).toBe(106 + 480);
+    expect(advPackedBlockBase(1, 0)).toBe(106 + 4 * 480);
+  });
+
+  it('round-trips and decodes the verified slot-2+ records bit-exact', () => {
+    // ({ch,type,d1,d2}, packed B0..B4) from the four on-device reads.
+    const cases: Array<[[number, number, number, number], number[]]> = [
+      [
+        [2, 2, 40, 50],
+        [0x08, 0x10, 0x00, 0x45, 0x0c],
+      ], // NoteON
+      [
+        [3, 1, 40, 50],
+        [0x0c, 0x08, 0x00, 0x45, 0x0c],
+      ], // CC
+      [
+        [2, 1, 40, 50],
+        [0x08, 0x08, 0x00, 0x45, 0x0c],
+      ], // CC
+      [
+        [2, 2, 41, 50],
+        [0x08, 0x10, 0x10, 0x45, 0x0c],
+      ], // NoteON d1=41
+    ];
+    for (const [[ch, type, d1, d2], rec] of cases) {
+      const code = { enabled: true, channel: ch, type, data1: d1, data2: d2 };
+      expect(encodePackedMidiCode2(code)).toEqual(rec);
+      expect(decodePackedMidiCode2(rec)).toEqual(code);
+    }
+  });
+
+  it('decodes the captured Bank-B cells for slots 1-2', () => {
+    // 6-byte cells at packed block +92 (verified on a live device).
+    const okCells: Array<
+      [number, number[], { channel: number; type: number; data1: number; data2: number }]
+    > = [
+      [0, [0x40, 0x00, 0x00, 0x00, 0x00, 0x00], { channel: 0, type: 0, data1: 0, data2: 0 }], // PC 0 0
+      [1, [0x10, 0x00, 0x40, 0x00, 0x19, 0x00], { channel: 0, type: 1, data1: 25, data2: 0 }], // CC 25 0
+    ];
+    for (const [slot, rec, expected] of okCells) {
+      expect(decodePackedBankBCell(rec, slot)).toEqual({ enabled: true, ...expected });
+    }
+    // Slot 3+ layout is not yet derived - must not fabricate data.
+    expect(decodePackedBankBCell([0x04, 0x00, 0x20, 0x60, 0x46, 0x0e], 2)).toBeNull();
+    // A populated FIRST message (different, unmapped layout) must not fabricate.
+    expect(decodePackedBankBCell([0x40, 0x00, 0x02, 0x02, 0x64, 0x00], 0)).toBeNull();
   });
 });

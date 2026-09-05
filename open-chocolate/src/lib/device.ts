@@ -15,16 +15,16 @@
 import { MidiAccess, type MidiDevicePair, type MidiMessageEvent, type MidiTransport } from './midi';
 import {
   ADDR,
-  ADV_CUSTOM_BLOCK,
-  ADV_CUSTOM_PAGE_STRIDE,
   ADV_CUSTOM_SWITCHES,
-  advCustomBlockAddr,
+  advPackedBlockBase,
   buildBankClearWrite,
   buildConfigWrite,
   buildDiscoveryRequest,
   buildReadRequest,
   CUSTOM_CC_BANKS,
-  decodeMidiCodes,
+  decodePackedMidiCode,
+  decodePackedMidiCode2,
+  decodePackedBankBCell,
   footswitchAddr,
   MIDI_CODE_SLOTS,
   midiCodeAddr,
@@ -32,6 +32,7 @@ import {
   SYSEX_END,
   SYSEX_START,
   toHex,
+  unpackPackedMode,
   type MidiCode,
   type ParsedMessage,
 } from './sysex';
@@ -643,6 +644,14 @@ export class CommsService {
    * Decode the Advanced Custom banks and step modes of the active usr page
    * from the raw read-back pages. Called whenever a page lands and again when
    * the page selector changes, so banks always track config.usrPage.
+   *
+   * The `0D 41` pages open-chocolate reads carry a packed view of each
+   * switch block (see the codec in sysex.ts): slot 1 uses the R-codec at
+   * packed +2..+6, and each further slot uses a second codec at +8..+12
+   * (+5 per slot after the constant byte at +7). Both codecs are verified
+   * bit-exact on a real device (the official app reads the same messages
+   * back correctly). Writes use the plain logical addresses (midiCodeA @
+   * block+1 / midiCodeB @ block+81), which the desktop app also uses.
    */
   private decodeAdvancedCustom(device: ChocolateDevice): void {
     const pages = this.pagesFor(device.pair.key);
@@ -653,22 +662,86 @@ export class CommsService {
     }
     const page = device.config.usrPage as 0 | 1 | null;
     if (page === null) return;
-    const first = advCustomBlockAddr(page, 0);
-    const region = new Uint8Array(ADV_CUSTOM_PAGE_STRIDE);
-    for (let i = 0; i < region.length; i++) {
-      const value = this.blobByte(pages, first + i);
-      if (value === null) return; // not all pages arrived yet
-      region[i] = value;
-    }
     for (let sw = 0; sw < ADV_CUSTOM_SWITCHES; sw++) {
-      const base = sw * ADV_CUSTOM_BLOCK;
-      const mode = region[base];
+      const base = advPackedBlockBase(page, sw);
+      const modeByte = this.blobByte(pages, base);
+      if (modeByte === null) continue;
+      const mode = unpackPackedMode(modeByte);
       if (mode <= 4) device.config.footswitchModes[sw] = mode;
-      device.config.footswitchBanks[sw] = [
-        { codes: decodeMidiCodes(region, base + 1) },
-        { codes: decodeMidiCodes(region, base + 1 + MIDI_CODE_SLOTS * 5) },
+      const banks: [FootswitchBank, FootswitchBank] = [
+        emptyFootswitchBank(),
+        emptyFootswitchBank(),
       ];
+      const codes = this.decodePackedSlots(pages, base + 2);
+      banks[0] = {
+        codes: Array.from({ length: MIDI_CODE_SLOTS }, (_, i) => codes[i] ?? defaultMidiCode()),
+      };
+      // Bank B (midiCodeB): 6-byte cells at packed block +92 (verified for
+      // slots 1-2 on a live device; unverified cells stay empty).
+      const bankBCodes: (MidiCode | undefined)[] = [];
+      for (let s = 0; s < MIDI_CODE_SLOTS; s++) {
+        const rec = new Array<number>(6);
+        let present = false;
+        let missing = false;
+        for (let f = 0; f < 6; f++) {
+          const v = this.blobByte(pages, base + 92 + s * 6 + f);
+          if (v === null) {
+            missing = true;
+            break;
+          }
+          rec[f] = v;
+          present ||= v !== 0;
+        }
+        if (missing) break;
+        if (!present) {
+          bankBCodes.push(undefined);
+          continue;
+        }
+        const code = decodePackedBankBCell(rec, s);
+        bankBCodes.push(code);
+      }
+      banks[1] = {
+        codes: Array.from({ length: MIDI_CODE_SLOTS }, (_, i) => bankBCodes[i] ?? defaultMidiCode()),
+      };
+      device.config.footswitchBanks[sw] = banks;
     }
+  }
+
+  /**
+   * Decode the packed slot records of a block: slot 1 at `base` using the
+   * R-codec, then further slots every 5 bytes (after the constant byte at
+   * `base+5`) using the slot-2+ codec. Records that are all-zero or decode to
+   * impossible fields are treated as absent.
+   */
+  private decodePackedSlots(
+    pages: Map<number, Uint8Array>,
+    base: number
+  ): (MidiCode | undefined)[] {
+    const slots: (MidiCode | undefined)[] = [];
+    for (let s = 0; s < MIDI_CODE_SLOTS; s++) {
+      // slot1: base; slot2+: constant byte at base+5, then records every 5
+      // bytes (slot2 at base+6, slot3 at base+11, ...).
+      const off = s === 0 ? base : base + 1 + s * 5;
+      const rec = new Array<number>(5);
+      let present = false;
+      for (let f = 0; f < 5; f++) {
+        const v = this.blobByte(pages, off + f);
+        if (v === null) return slots;
+        rec[f] = v;
+        present ||= v !== 0;
+      }
+      if (!present) {
+        slots.push(undefined);
+        continue;
+      }
+      const code = s === 0 ? decodePackedMidiCode(rec) : decodePackedMidiCode2(rec);
+      if (code.channel > 15 || code.type > 4) {
+        slots.push(undefined);
+        continue;
+      }
+      slots.push(code);
+    }
+    return slots;
   }
 
   /**
@@ -770,11 +843,14 @@ export class CommsService {
     code: MidiCode
   ): Promise<void> {
     const device = this.requireConnected();
+    // PC (type 0) messages carry no velocity/value byte - data 2 is always 0.
+    // Normalise here so a caller cannot persist a stray non-zero data 2.
+    const data2 = code.type === 0 ? 0 : code.data2;
     const bytes = [
       code.channel & 0x7f,
       code.type & 0x7f,
       code.data1 & 0x7f,
-      code.data2 & 0x7f,
+      data2 & 0x7f,
       code.enabled ? 1 : 0,
     ];
     const base = midiCodeAddr(page, index, bank, slot, 0);
@@ -796,16 +872,29 @@ export class CommsService {
   }
 
   /**
-   * Clear every midi-code slot of one Advanced Custom footswitch bank with a
-   * single `09 41` bulk write - the same one-message request the official app
-   * sends for "Remove all" (a byte-by-byte `09 49` loop would take 80
-   * round-trips and flood the link).
+   * Clear every midi-code slot of one Advanced Custom footswitch bank.
+   *
+   * Preferred path: a single `09 41` bulk write - the one-message request the
+   * official app sends for "Remove all" on footswitches B/D (captured
+   * bit-perfect). Live testing showed the device REJECTS the bulk clear for
+   * footswitch A (no ACK), so on timeout we fall back to zeroing each of the
+   * bank's 80 bytes via the per-byte `09 49` writes (the confirmed-working
+   * write path, same as Bank B edits).
    */
   async clearFootswitchBanks(page: 0 | 1, index: 0 | 1 | 2 | 3, bank: 0 | 1): Promise<void> {
     const device = this.requireConnected();
     if (!device.pair.outputId) throw new Error('Device has no MIDI output');
     await this.tx(device.pair.outputId, buildBankClearWrite(page, index, bank));
-    await this.expect(device.pair.key, (m) => m.kind === 'ack', 2000);
+    try {
+      await this.expect(device.pair.key, (m) => m.kind === 'ack', 2000);
+    } catch {
+      // Device did not ACK the bulk clear (observed for footswitch A). Zero the
+      // bank byte-by-byte via the proven `09 49` write path instead.
+      const base = midiCodeAddr(page, index, bank, 0, 0);
+      for (let i = 0; i < MIDI_CODE_SLOTS * 5; i++) {
+        await this.writeConfig(base + i, 0);
+      }
+    }
     const banks =
       device.config.footswitchBanks[index] ??
       (device.config.footswitchBanks[index] = [emptyFootswitchBank(), emptyFootswitchBank()]);

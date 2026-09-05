@@ -45,6 +45,14 @@ export const CK_DEFAULT = 0x28a;
 export const CK_FOOTSWITCH_B = 0x38b;
 export const CK_FOOTSWITCH_C = 0x18b;
 export const CK_SYSTEM = 0x20b;
+/**
+ * Checksum constant for the midiCodeB region (Bank B) of each Advanced
+ * Custom switch block (block+81..block+160). Confirmed live on a real device:
+ * a Bank-B `09 49` write with the switch's own constant (0x28a) drew no device
+ * response, and 0x38b also failed; 0x18b was ACKed. Bank A (midiCodeA) keeps
+ * the per-switch constant.
+ */
+export const CK_FOOTSWITCH_BANK_B = 0x18b;
 
 /**
  * Bulk-write checksum base for the `09 41` bank-clear message.
@@ -150,6 +158,146 @@ export function decodeMidiCodes(src: Uint8Array | readonly number[], off: number
   return out;
 }
 
+/**
+ * Advanced Custom read-back codec for the `0D 41` page path (validated on a
+ * real device: slot 1 of the packed block decodes bit-exact, and footstuff
+ * modes/values read back correctly). NOTE: the desktop app's own `flash_read`
+ * protocol serves the raw logical blob, but the stride-1009 `0D` pages that
+ * open-chocolate uses carry a packed view, so the decode here is required.
+ *
+ * Each switch's packed block (page p, switch sw) starts at
+ * `ADV_PACKED_BASE + page*4*STRIDE + sw*STRIDE`; [+0] = step mode << 2,
+ * [+1] = constant 0x08, then per-slot 5-byte records R0..R4 at [+2 + slot*5]:
+ *
+ *   R0 = (channel & 7) << 4           // channel bits 0..2
+ *   R1 = (type << 5) | (channel >> 3) // type bits + channel bit 3
+ *   R2 = (data1 & 1) << 6             // data1 LSB
+ *   R3 = data1 >> 1                   // data1 high 6 bits
+ *   R4 = data2                        // literal
+ *
+ * decode(channel) = (R0>>4 & 7) | ((R1&1)<<3); type = (R1>>5)&7;
+ * data1 = (R3<<1) | ((R2>>6)&1); data2 = R4.
+ *
+ * Slot 1 is verified bit-exact against the GroupA-D captures and live reads.
+ * The layout of slots 2+ is NOT yet derived (a separate compact encoding), so
+ * the decoder only trusts the first slot to avoid showing wrong values.
+ */
+
+export const ADV_PACKED_BASE = 106;
+export const ADV_PACKED_BLOCK_STRIDE = 480;
+export const ADV_PACKED_PAGE_STRIDE = 4 * ADV_PACKED_BLOCK_STRIDE;
+
+/** Packed blob address of one switch block on a usr page. */
+export function advPackedBlockBase(page: number, sw: number): number {
+  return ADV_PACKED_BASE + page * ADV_PACKED_PAGE_STRIDE + sw * ADV_PACKED_BLOCK_STRIDE;
+}
+
+/** Decode the packed step-mode byte (stored `value << 2`). */
+export function unpackPackedMode(v: number): number {
+  return (v >> 2) & 0x7;
+}
+
+/** Encode a step-mode value for the packed byte. */
+export function packPackedMode(mode: number): number {
+  return (mode & 0x7) << 2;
+}
+
+/** Decode one packed 5-byte midi-code record `R0..R4` to a logical code. */
+export function decodePackedMidiCode(rec: readonly number[]): MidiCode {
+  const channel = ((rec[0] >> 4) & 0x7) | ((rec[1] & 0x1) << 3);
+  const type = (rec[1] >> 5) & 0x7;
+  const data1 = ((rec[3] & 0x7f) << 1) | ((rec[2] >> 6) & 0x1);
+  const data2 = rec[4] & 0x7f;
+  return { enabled: true, channel, type, data1, data2 };
+}
+
+/** Encode a logical midi code to its packed 5-byte record `R0..R4`. */
+export function encodePackedMidiCode(code: MidiCode): number[] {
+  return [
+    (code.channel & 0x7) << 4,
+    ((code.type & 0x7) << 5) | ((code.channel >> 3) & 0x1),
+    (code.data1 & 0x1) << 6,
+    (code.data1 >> 1) & 0x7f,
+    code.data2 & 0x7f,
+  ];
+}
+
+/**
+ * Slot-2+ packed record codec (verified bit-exact on a live device).
+ *
+ * Slot 1 of a switch block uses `decodePackedMidiCode` (R-codec) at packed
+ * block +2..+6; each ADDITIONAL enabled message lives at +8..+12 (+5 per
+ * further slot, after the constant byte at +7) and uses this layout:
+ *
+ *   B0 = (channel & 0xf) << 2
+ *   B1 = (type & 0x7) << 3
+ *   B2 = (data1 & 0x7) << 4                  // data1 bits 0..2
+ *   B3 = (data1 >> 3) | ((data2 & 3) << 5)   // data1 bits 3..6, data2 bits 0..1
+ *   B4 = data2 >> 2                          // data2 bits 2..6
+ *
+ * Verified against four on-device reads ({ch,type,d1,d2} -> bytes 114-118):
+ *   {2,NoteON,40,50} -> 08 10 00 45 0c
+ *   {3,CC,40,50}     -> 0c 08 00 45 0c
+ *   {2,CC,40,50}     -> 08 08 00 45 0c
+ *   {2,NoteON,41,50} -> 08 10 10 45 0c
+ */
+export function encodePackedMidiCode2(code: MidiCode): number[] {
+  return [
+    (code.channel & 0xf) << 2,
+    (code.type & 0x7) << 3,
+    (code.data1 & 0x7) << 4,
+    (code.data1 >> 3) | ((code.data2 & 0x3) << 5),
+    code.data2 >> 2,
+  ];
+}
+
+/** Decode a slot-2+ packed 5-byte record `B0..B4` to a logical code. */
+export function decodePackedMidiCode2(rec: readonly number[]): MidiCode {
+  const channel = (rec[0] >> 2) & 0xf;
+  const type = (rec[1] >> 3) & 0x7;
+  const data1 = ((rec[3] & 0x1f) << 3) | (rec[2] >> 4);
+  const data2 = (rec[4] << 2) | (rec[3] >> 5);
+  return { enabled: true, channel, type, data1, data2 };
+}
+
+/**
+ * Bank B (midiCodeB) packed cells - PARTIAL, empirically verified on a live
+ * device for the SECOND message only. Bank B of each switch block starts at
+ * packed block +92 and holds one 6-byte cell per message (stride 6):
+ *
+ *   b0 = type     : 0x40 (t0) / 0x10 (t1) / 0x04 (t2) / 0x01 (t3)
+ *   b1 = channel  (observed 0 for ch0; scale unverified)
+ *   b2 = type-2   : 0x40 (t1) / 0x20 (t2) / 0x80-masked (t0)
+ *   b3..b5 = data, slot-dependent (verified):
+ *     slot 2 (second message): d1 = b4 (literal), d2 = b5 >> 1
+ *     slot 1 and 3+: layout NOT derived (first message encodes channel/type/
+ *     data in a different, value-dependent spread - a live read {
+ *     {ch2,CC,25,0} -> `40 00 02 02 64 00` could not be verified; a strict
+ *     guard accepts only the marker-only first cell so the UI never shows
+ *     fabricated values.
+ */
+export function decodePackedBankBCell(rec: readonly number[], slot: number): MidiCode | null {
+  const type = [0x40, 0x10, 0x04, 0x01].indexOf(rec[0] & 0x7f);
+  if (type < 0) return null;
+  let data1 = 0;
+  let data2 = 0;
+  if (slot === 0) {
+    // Only the marker-only first cell (`40 00 00 00 00 00` = PC 0 0) is
+    // trusted; a populated first message uses an unmapped layout.
+    if (rec[1] !== 0 || rec[2] !== 0 || rec[3] !== 0 || rec[4] !== 0 || rec[5] !== 0) {
+      return null;
+    }
+  } else if (slot === 1) {
+    data1 = rec[4];
+    data2 = rec[5] >> 1;
+  } else {
+    return null; // unverified layout for slots 3+
+  }
+  // channel is stored at b1; only ch0 was captured, so keep the raw nibble.
+  const channel = rec[1] & 0xf;
+  return { enabled: true, channel, type, data1, data2 };
+}
+
 /** MidI message type labels, in blob value order (see MidiCode.type). */
 export const MIDI_CODE_TYPES = [
   { value: 0, label: 'PC' },
@@ -185,10 +333,14 @@ export function checksumConstantFor(addr: number): number {
   // Advanced Custom switch blocks (93 + k*417): the captured constants follow
   // the switch position within the page (A=0x28a, B=0x38b, C=0x18b, D=0x38b)
   // and repeat every page. Verified on each block's first byte (the step
-  // mode); the whole block is assumed to share the switch's constant.
+  // mode). The midiCodeB region (Bank B, block+81..block+160) uses a separate
+  // constant (GUESS 0x38b, being live-tested) because a Bank-B write using the
+  // switch constant was not acknowledged by the device.
   const rel = addr - ADV_CUSTOM_START;
   if (rel >= 0 && rel < 8 * ADV_CUSTOM_BLOCK) {
     const sw = Math.floor(rel / ADV_CUSTOM_BLOCK) % ADV_CUSTOM_SWITCHES;
+    const inBlock = rel - Math.floor(rel / ADV_CUSTOM_BLOCK) * ADV_CUSTOM_BLOCK;
+    if (inBlock >= 81 && inBlock < 161) return CK_FOOTSWITCH_BANK_B;
     return [CK_DEFAULT, CK_FOOTSWITCH_B, CK_FOOTSWITCH_C, CK_FOOTSWITCH_B][sw];
   }
   if (addr >= ADDR.maxBanksPcA && addr <= ADDR.polarity) return CK_SYSTEM;

@@ -177,3 +177,101 @@ mode. The fifth slot's purpose is unknown (expression pedal or reserved).
 functions (`CUSBConnect::add_checksum`, `make_flash_*_packet`,
 `FootCtrlPlusDlg::*`). Decompiled copies of key Android classes are in this
 folder (`FC2Struct.decompiled.java` etc.).
+
+## Advanced Custom read-back: packed view on the 0D path (device-validated)
+
+Two read protocols exist and they differ:
+
+- The **desktop app's own** `flash_read` (via `send_upload_request` /
+  `get_upload_responds`) copies response payloads **verbatim** into the logical
+  blob (`Ghidra: _memcpy(dst, src, len)`, no decryption). It addresses the
+  logical layout directly: Bank A = `midiCodeA` @ `94 + sw*0x1a1 + page*0x684
+  + slot*5`, Bank B = `midiCodeB` @ `174 + ...` (from `addAMidiCode` /
+  `addBMidiCode`). Writes send that raw region via one `09 41` (blob 93..13437).
+- The **stride-1009 `0D 41` pages** that open-chocolate (and the Android app)
+  read carry a **packed view** of the advanced region: each switch block is
+  stored at `ADV_PACKED_BASE + page*4*480 + sw*480` with mode <<2 at [+0], a
+  constant 0x08 at [+1] and per-slot 5-byte records R0..R4 at [+2 + slot*5]
+  (see the codec in `sysex.ts`). Slot 1 decodes bit-exact (validated against
+  the GroupA-D captures AND live on a real device: `CH 16 CC 1 0`, `CH 1 PC
+  0 0` read back correctly).
+
+Consequences:
+
+- The earlier "packed flash" hypothesis was correct FOR THE 0D PATH, and the
+  logical-only decode was wrong for it (the desktop raw-copy proof applies only
+  to the desktop's own read protocol). `open-chocolate` reads via 0D, so it
+  unpacks the packed records; it still WRITES via the plain logical addresses
+  (midiCodeA/B), matching the desktop app.
+- `.fcp` exports made with the desktop app keep Bank A at blob 94
+  (`midiCodeA`). The `complex-3` files with Bank A at blob 174 were produced by
+  a different app/build (the Flutter "Midi Suite" has its own codec -
+  `sysex_codec.dart`/`FcMidiCodeStruct` in `old-apps/Midi Suite/data/app.so`).
+- **Slot 2+ codec (cracked, verified on-device).** A packed block holds slot 1
+  as an R-codec record at [+2], a constant byte at [+7], then one record per
+  further slot every 5 bytes ([+8], [+13], ...) using a second codec:
+
+  ```
+  B0 = (channel & 0xf) << 2
+  B1 = (type & 0x7) << 3
+  B2 = (data1 & 0x7) << 4                  // data1 bits 0..2
+  B3 = (data1 >> 3) | ((data2 & 3) << 5)   // data1 bits 3..6, data2 bits 0..1
+  B4 = data2 >> 2                          // data2 bits 2..6
+  ```
+
+  Verified bit-exact against four live `open-chocolate` reads: expecting
+  `{ch,type,d1,d2}`, the cells `{2,2,40,50}->08 10 00 45 0c`,
+  `{3,1,40,50}->0c 08 00 45 0c`, `{2,1,40,50}->08 08 00 45 0c`,
+  `{2,2,41,50}->08 10 10 45 0c` all decode correctly, and the official app
+  reads the same messages back (`[2] 3 CC 40 50`, `[2] 3 Note ON 41 50`), so
+  the write side is correct and only the read-back decode was missing slots 2+.
+- Caveat: a single-message block may leave stale bytes in the slot-2+ cells, so
+  the UI can show a leftover second message until the block is cleared.
+
+### Bank B (midiCodeB) write checksum - confirmed live
+
+Writing a Bank A (`midiCodeA`) slot via `09 49` is ACKed by the device with the
+general/per-switch constant (`0x28a` for footswitch A). The **midiCodeB region**
+(block+81..block+160, i.e. Bank B of every switch) needs its own constant,
+confirmed by live trial on a real device: a write to addr 175 with 0x28a drew no
+response, 0x38b also drew no response, and **0x18b was ACKed** (the same value as
+the footswitch-C block constant). Implemented as `CK_FOOTSWITCH_BANK_B = 0x18b`
+in `sysex.ts` `checksumConstantFor`.
+
+### Bank B read-back cells - partially mapped
+
+Differential reads (changing one Bank-B message field at a time) pin the Bank B
+region: 6-byte cells at packed block +92, stride 6, with:
+
+- `b0` = type via `0x40 >> (2*type)` (PC/CC/NoteON/NoteOFF -> 0x40/0x10/0x04/0x01)
+- `b2` = type via `0x80 >> (type+1)` masked to 7 bits
+- the SECOND message (`slot 1`) decodes exactly: `data1 = b4` (literal),
+  `data2 = b5 >> 1` (verified live: `CH1 CC 1 2` read back bit-exact from
+  `10 00 40 00 01 04`).
+- the FIRST message uses a DIFFERENT, value-dependent spread (e.g. a live
+  `{ch2,CC,25,0}` -> `40 00 02 02 64 00` did not fit the second-message
+  formula), and slots 3+ are also unmapped. `decodePackedBankBCell` therefore
+  only trusts the marker-only first cell (`40 00 00 00 00 00` = PC 0 0) and
+  the second cell, so the UI never fabricates values.
+
+## Bank edits are chunked `09 41` flash writes, not per-byte `09 49`
+
+The official (Android) app writes an edited Advanced Custom bank as a
+segmented flash transfer, not a `09 49` byte loop:
+
+- 13 messages of **1190 bytes** with header `F0 00 32 09 41 40 00 00 02
+  <addr:4>` and an address stride of `0x400` (93, 1117, ..., 12381), each
+  acked by a 12-byte `01 08`, followed by a **56-byte** `09 41 02` final
+  message at the next chunk base (13405), then its ack.
+- The 1190-byte payload is the **packed** flash region (matching the read
+  view), NOT a plain 1024-byte copy: the edited slot's 5 bytes appear spread
+  across a handful of bit-encoded bytes, and most of each message is zeros.
+- The framing byte at offset 5 differs by message (0x40 for data chunks,
+  0x02 for the final, 0x05 for the `09 41` bank-clear). Checksum uses the
+  same `K - sum(D)` scheme as the 111-byte bank-clear, with a per-chunk
+  constant not yet derived.
+
+Current `setFootswitchMidiCode` writes each logical byte via `09 49`; the
+write packet/re-pack algorithm remains to be reproduced before bank edits can
+be sent the way the official app does. This section supersedes the older
+"Add/configure chunk writes" note in `MIDI-protocol-spec.md`.
