@@ -760,6 +760,52 @@ def set_trs_jack_mode(mode: str) -> int:
     return 0
 
 
+# Device-mode radio selection detector: the enabled radio's circle shows a
+# white center dot; all others show a dark circle. Count white pixels in a
+# box left of each mode's label position.
+def detect_device_mode() -> tuple[str | None, list[str]]:
+    """Detect which device mode is enabled from the window pixels.
+
+    Returns (mode, problems): mode is the detected enabled mode (None if
+    none detected), problems lists modes that look ambiguous. Exactly one
+    mode should be enabled; calling code should error if len != 1.
+    """
+    import tempfile
+
+    wid = open_windows().get("footctrlplus")
+    if wid is None:
+        return None, ["footctrlplus window not open"]
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        path = tmp.name
+    try:
+        proc = _run(["import", "-window", wid, path])
+        if proc.returncode != 0:
+            return None, ["screenshot failed"]
+        from PIL import Image
+
+        im = Image.open(path).convert("RGB")
+        enabled: list[str] = []
+        for name, (x, y) in DEVICE_MODES.items():
+            white = 0
+            for yy in range(y - 8, y + 9):
+                for xx in range(x - 20, x - 1):
+                    c = im.getpixel((xx, yy))
+                    if c[0] > 200 and c[1] > 200 and c[2] > 200:
+                        white += 1
+            if white > 0:
+                enabled.append(name)
+        if not enabled:
+            return None, ["no device mode radio shows a white dot"]
+        if len(enabled) > 1:
+            return None, [f"{len(enabled)} modes show white dots: {enabled}"]
+        return enabled[0], []
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 # Polarity reversal toggle colors (FootCtrlPlus, at 248,76):
 #   off = dark   #08251d
 #   on  = bright #33eab8
@@ -1053,10 +1099,17 @@ def main(argv=None) -> int:
 
     p_dm = sub.add_parser(
         "device-mode",
-        help="select a device mode radio button (how the device operates "
-        "as a whole; one at a time)",
+        help="select ['set'] a device mode radio button (how the device "
+        "operates as a whole; one at a time), or 'get' to detect the "
+        "enabled one from the window",
     )
-    p_dm.add_argument("mode", choices=sorted(DEVICE_MODES))
+    p_dm.add_argument(
+        "mode",
+        nargs="?",
+        default="set",
+        choices=["set", "get"] + sorted(DEVICE_MODES),
+        help="'get' (detect), 'set' (show choices), or a mode name",
+    )
 
     p_trs = sub.add_parser(
         "trs-jack-mode",
@@ -1189,6 +1242,16 @@ def main(argv=None) -> int:
     if args.command in ("footswitch-mode", "mode"):
         return set_footswitch_mode(args.mode)
     if args.command == "device-mode":
+        if args.mode == "get":
+            mode, problems = detect_device_mode()
+            if problems:
+                print(
+                    f"device-mode get: detection problem: {'; '.join(problems)}",
+                    file=sys.stderr,
+                )
+                return 1
+            print(f"device-mode: {mode} enabled")
+            return 0
         return set_device_mode(args.mode)
     if args.command == "trs-jack-mode":
         return set_trs_jack_mode(args.mode)

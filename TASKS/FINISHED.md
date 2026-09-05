@@ -2,6 +2,17 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Read device mode enablement from the GUI (2026-09-05)
+
+- `detect_device_mode()` + CLI `choco.py device-mode get`: screenshots
+  FootCtrlPlus and detects which device-mode radio is enabled. The
+  selected radio shows a **white center dot** (others dark circle) —
+  counts white pixels in a box left of each label; returns (mode,
+  problems), errors on 0 or >1 enabled (bad state / failed detection).
+- Verified (goal 2): click each of the 13 device modes, then detect —
+  13/13 exact matches. Restored `advanced_custom` after.
+- README updated (`device-mode get` usage).
+
 ## Task — Reading "Advanced Custom" bank contents with OCR (2026-09-05)
 
 ### Harness
