@@ -98,6 +98,11 @@ TRS_JACK_MODE_BYTE_TO_NAME = {
     0x01: "trs_midi",
 }
 
+# TRS jack reverse-polarity toggle (op 0x49, selector 02 5A, off=0x38):
+# byte 17 = 0x00 when ON (reversed), 0x01 when OFF.
+TRS_POLARITY_SELECTOR = 0x025A
+TRS_POLARITY_OFF = 0x38
+
 # Init/discovery handshake (register read protocol):
 #   app -> dev read request: F0 00 32 0D 41 00 00 00 02 <a> <b> <c>
 #                             00 00 10 7E 00 00 <v> 00 F7
@@ -192,6 +197,10 @@ def decode_sysex(b: bytes) -> dict[str, object]:
                     info["mode"] = TRS_JACK_MODE_BYTE_TO_NAME.get(
                         b[17], f"0x{b[17]:02X}"
                     )
+            elif sel == TRS_POLARITY_SELECTOR and b[10] == TRS_POLARITY_OFF:
+                # TRS jack reverse-polarity: 00 = on (reversed), 01 = off.
+                info["switch"] = "trs-pol"
+                info["polarity"] = "on" if b[17] == 0x00 else "off"
             else:
                 sw = MODE_SWITCH_BYTES.get(sel, "?")
                 info["switch"] = sw
@@ -254,6 +263,8 @@ def render(port: str, kind: str, data: str, raw: bool = False) -> str | None:
                     details.append(f"mode={info['mode']}")
                 if "switch" in info:
                     details.append(f"sw={info['switch']}")
+                if "polarity" in info:
+                    details.append(f"polarity={info['polarity']}")
                 if "data2" in info:
                     details.append(f"data2={info['data2']}")
                 if raw:

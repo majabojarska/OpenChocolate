@@ -197,6 +197,25 @@ Capture: both modes × 2 sweeps (`captures/09_05/midi_20260905_234141.log`).
 
 `trace.py` labels these `sw=trs` + the mode name.
 
+### 2g. TRS jack reverse-polarity (op `49`, selector `02 5A`) — SOLVED
+
+Toggle for the TRS jack polarity reversal (same position on/off in the UI,
+which is: off=dark #08251d, on=bright #33eab8). Same 21-byte `49` frame,
+selector `02 5A`, offset `38`:
+
+```
+F0 00 32 09 49 00 00 00 02 5A 00 00 00 38 00 00 00 <STATE> <CHK1> <CHK2> F7
+```
+
+| byte 17 | meaning | checksum |
+|---|---|---|
+| `00` | ON (reversed) | `08 01` |
+| `01` | OFF (normal) | `06 01` |
+
+Note byte 17 is **inverted** relative to intuition: `00` = on. Capture:
+`captures/09_05/midi_20260905_235754.log` (2 cycles, reproducible).
+`trace.py` labels these `sw=trs-pol polarity=on|off`.
+
 Device → host ACK:
 
 ```

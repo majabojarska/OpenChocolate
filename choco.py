@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -103,6 +104,8 @@ COORDS = {
     **DEVICE_MODES,
     # TRS jack mode radio buttons
     **TRS_JACK_MODES,
+    # Polarity reversal toggle (same position on/off)
+    "polarity_reversal": (248, 76),
     # window close buttons (title bar)
     "close_footctrlplus": (1250, 17),
     "close_launchpad": (648, 13),
@@ -125,6 +128,7 @@ ACTION_WINDOW = {
     **dict.fromkeys(DEVICE_MODES, "footctrlplus"),
     # TRS jack mode radio buttons
     **dict.fromkeys(TRS_JACK_MODES, "footctrlplus"),
+    "polarity_reversal": "footctrlplus",
     "close_editor": "footctrlplus",
     "open_edit": "footctrlplus",
     "close_footctrlplus": "footctrlplus",
@@ -152,6 +156,7 @@ DISPLAY = {
     **{mode: mode.replace("_", "-") for mode in DEVICE_MODES},
     # TRS jack mode radio buttons
     **{mode: mode.replace("_", "-") for mode in TRS_JACK_MODES},
+    "polarity_reversal": "polarity-reversal",
     "close_editor": "close-editor",
     "open_edit": "open-edit",
     "close_footctrlplus": "close-footctrlplus",
@@ -749,6 +754,78 @@ def set_trs_jack_mode(mode: str) -> int:
     return 0
 
 
+# Polarity reversal toggle colors (FootCtrlPlus, at 248,76):
+#   off = dark   #08251d
+#   on  = bright #33eab8
+POLARITY_OFF_RGB = (0x08, 0x25, 0x1D)
+POLARITY_ON_RGB = (0x33, 0xEA, 0xB8)
+# tolerance for screenshot color comparison (per channel)
+POLARITY_TOLERANCE = 24
+
+
+def toggle_polarity() -> int:
+    """Toggle the Polarity reversal switch (same position on/off)."""
+    wid = require("polarity_reversal")
+    if wid is None:
+        return 1
+    click(wid, *COORDS["polarity_reversal"])
+    print("trs-jack-reverse-polarity: toggled")
+    return 0
+
+
+def polarity_reversed() -> bool | None:
+    """Read the Polarity reversal state from the window's pixels.
+
+    Screenshots the FootCtrlPlus window and compares the color at the
+    toggle's position against the known bright/dark colors (with
+    tolerance). Returns True (on) / False (off), or None if the state
+    can't be determined (window closed / color unknown).
+    """
+    import tempfile
+
+    wid = open_windows().get("footctrlplus")
+    if wid is None:
+        return None
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        path = tmp.name
+    proc = _run(["import", "-window", wid, path])
+    if proc.returncode != 0:
+        return None
+    try:
+        from PIL import Image
+
+        im = Image.open(path).convert("RGB")
+        x, y = COORDS["polarity_reversal"]
+        # sample a small patch around the toggle (exclude the exact border)
+        w = im.width
+        # the patch is small; average a 4x4 area centered on (x, y)
+        xs = range(max(0, x - 2), min(w, x + 3))
+        ys = range(max(0, y - 2), min(im.height, y + 3))
+        px = im.load()
+        n = 0
+        tot = [0, 0, 0]
+        for xx in xs:
+            for yy in ys:
+                c = px[xx, yy]
+                tot[0] += c[0]
+                tot[1] += c[1]
+                tot[2] += c[2]
+                n += 1
+        avg = tuple(t // n for t in tot)
+        d_off = sum(abs(a - b) for a, b in zip(avg, POLARITY_OFF_RGB))
+        d_on = sum(abs(a - b) for a, b in zip(avg, POLARITY_ON_RGB))
+        if d_on <= POLARITY_TOLERANCE * 3 and d_on < d_off:
+            return True
+        if d_off <= POLARITY_TOLERANCE * 3 and d_off < d_on:
+            return False
+        return None
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 def close_editor() -> int:
     """Close FootCtrlPlus via the Escape key."""
     return cmd_close_editor()
@@ -892,6 +969,24 @@ def main(argv=None) -> int:
     )
     p_trs.add_argument("mode", choices=sorted(TRS_JACK_MODES))
 
+    p_pol = sub.add_parser(
+        "trs-jack-reverse-polarity",
+        help="toggle TRS jack reverse-polarity, or 'get' to read the switch "
+        "state from the window (requires PIL + ImageMagick)",
+    )
+    p_pol.add_argument(
+        "action",
+        nargs="?",
+        default="toggle",
+        choices=["toggle", "get"],
+        help="'toggle' (default) or 'get'",
+    )
+    p_pol.add_argument(
+        "--absolute",
+        action="store_true",
+        help="compute screen coords from wmctrl -lG instead of window-relative",
+    )
+
     p_remove = sub.add_parser("remove-all", help="click 'Remove all' on FootCtrlPlus")
     p_remove.add_argument(
         "--absolute",
@@ -994,6 +1089,22 @@ def main(argv=None) -> int:
         return set_device_mode(args.mode)
     if args.command == "trs-jack-mode":
         return set_trs_jack_mode(args.mode)
+    if args.command == "trs-jack-reverse-polarity":
+        if args.action == "get":
+            state = polarity_reversed()
+            if state is None:
+                print(
+                    "trs-jack-reverse-polarity: unknown ",
+                    "(window closed / color not recognized)",
+                    file=sys.stderr,
+                )
+                return 1
+            print(
+                "trs-jack-reverse-polarity: "
+                f"{'on (reversed)' if state else 'off (normal)'}"
+            )
+            return 0 if state is not None else 1
+        return toggle_polarity()
     if args.command == "remove-all":
         return remove_all(args.absolute, bank=args.bank)
     if args.command == "add":

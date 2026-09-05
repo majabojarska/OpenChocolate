@@ -2,6 +2,26 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — TRS jack reverse-polarity (2026-09-05)
+
+### Harness
+- `polarity_reversal` toggle at (248,76) on FootCtrlPlus; CLI
+  `choco.py trs-jack-reverse-polarity toggle|get` (renamed per operator)
+  + `toggle_polarity()`.
+- `polarity_reversed()` reads the switch state from the window pixels
+  (screenshot via ImageMagick `import`, PIL sample averaged around the
+  toggle, compared to #08251d off / #33eab8 on with ±24 tolerance).
+- Operator-verified enable/disable (each confirmed), incl. after the
+  screen-control permission was granted (clicks had been ignored).
+
+### Protocol — capture `captures/09_05/midi_20260905_235754.log`
+
+`F0 00 32 09 49 00 00 00 02 5A 00 00 00 38 00 00 00 <STATE> <CHK1> <CHK2> F7`
+- selector `02 5A` (TRS-jack polarity), offset `38`.
+- byte 17: `00`=ON (reversed), `01`=OFF (normal) — inverted semantics.
+- checksum `08 01` / `06 01` (CHK1 -2 per step).
+- `trace.py` decodes `sw=trs-pol polarity=on|off`; spec §2g added.
+
 ## Task — TRS jack mode controls (2026-09-05)
 
 ### Harness
