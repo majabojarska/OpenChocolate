@@ -760,15 +760,16 @@ def set_trs_jack_mode(mode: str) -> int:
     return 0
 
 
-# Device-mode radio selection detector: the enabled radio's circle shows a
-# white center dot; all others show a dark circle. Count white pixels in a
-# box left of each mode's label position.
-def detect_device_mode() -> tuple[str | None, list[str]]:
-    """Detect which device mode is enabled from the window pixels.
+# Radio-group selection detector: the enabled radio's circle shows a white
+# center dot; others show a dark circle. Count white pixels in a box left
+# of each label position.
+def _detect_radio_group(
+    modes: dict[str, tuple[int, int]], label: str
+) -> tuple[str | None, list[str]]:
+    """Detect which radio of `modes` is enabled (white center dot).
 
-    Returns (mode, problems): mode is the detected enabled mode (None if
-    none detected), problems lists modes that look ambiguous. Exactly one
-    mode should be enabled; calling code should error if len != 1.
+    Returns (enabled_mode, problems). Exactly one should be enabled;
+    callers should treat 0 or >1 as failure.
     """
     import tempfile
 
@@ -785,7 +786,7 @@ def detect_device_mode() -> tuple[str | None, list[str]]:
 
         im = Image.open(path).convert("RGB")
         enabled: list[str] = []
-        for name, (x, y) in DEVICE_MODES.items():
+        for name, (x, y) in modes.items():
             white = 0
             for yy in range(y - 8, y + 9):
                 for xx in range(x - 20, x - 1):
@@ -795,15 +796,25 @@ def detect_device_mode() -> tuple[str | None, list[str]]:
             if white > 0:
                 enabled.append(name)
         if not enabled:
-            return None, ["no device mode radio shows a white dot"]
+            return None, [f"no {label} radio shows a white dot"]
         if len(enabled) > 1:
-            return None, [f"{len(enabled)} modes show white dots: {enabled}"]
+            return None, [f"{len(enabled)} {label} radios show white dots: {enabled}"]
         return enabled[0], []
     finally:
         try:
             os.unlink(path)
         except OSError:
             pass
+
+
+def detect_device_mode() -> tuple[str | None, list[str]]:
+    """Detect which device mode is enabled from the window pixels."""
+    return _detect_radio_group(DEVICE_MODES, "device-mode")
+
+
+def detect_trs_jack_mode() -> tuple[str | None, list[str]]:
+    """Detect which TRS jack mode is enabled from the window pixels."""
+    return _detect_radio_group(TRS_JACK_MODES, "trs-jack-mode")
 
 
 # Polarity reversal toggle colors (FootCtrlPlus, at 248,76):
@@ -1114,9 +1125,15 @@ def main(argv=None) -> int:
     p_trs = sub.add_parser(
         "trs-jack-mode",
         help="select a TRS jack mode radio button (expression pedal vs raw "
-        "MIDI into the TRS socket)",
+        "MIDI into the TRS socket), or 'get' to detect the enabled one",
     )
-    p_trs.add_argument("mode", choices=sorted(TRS_JACK_MODES))
+    p_trs.add_argument(
+        "mode",
+        nargs="?",
+        default="set",
+        choices=["set", "get"] + sorted(TRS_JACK_MODES),
+        help="'get' (detect), 'set' (show choices), or a mode name",
+    )
 
     p_pol = sub.add_parser(
         "trs-jack-reverse-polarity",
@@ -1254,6 +1271,16 @@ def main(argv=None) -> int:
             return 0
         return set_device_mode(args.mode)
     if args.command == "trs-jack-mode":
+        if args.mode == "get":
+            mode, problems = detect_trs_jack_mode()
+            if problems:
+                print(
+                    f"trs-jack-mode get: detection problem: {'; '.join(problems)}",
+                    file=sys.stderr,
+                )
+                return 1
+            print(f"trs-jack-mode: {mode} enabled")
+            return 0
         return set_trs_jack_mode(args.mode)
     if args.command == "trs-jack-reverse-polarity":
         if args.action == "get":

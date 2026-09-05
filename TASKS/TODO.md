@@ -1,12 +1,32 @@
 # TODO.md
 
 How to work on this file:
+
 - Read the next task from this file
 - Get extra context from recently finished tasks - read the first 50 lines of TASKS/FINISHED.md
 - Move the completed task to FINISHED.md and report that you're finished
 
 Open work, roughly in priority order. Items marked **[spec]** are detailed in
 `REVERSED_PROTOCOL_SPEC.md`.
+
+---
+
+## Task - Detect footswitch selection
+
+### Context
+
+If device mode "Advanced Custom" is enabled, footswitches A,B,C,D can be selected in the GUI, in order to be configured.
+
+The position of footswitch selection toggles is known.
+
+### Goals
+
+1. Add GUI harness support for detection of currently selected footswitch.
+
+- Check first if "Advanced mode" device mode is enabled. If not, error.
+- If less than 1, or more than 1 footswitches are selected, that's either GUI error, or failed detection - error out.
+- Use pixel sampling, like with device mode detection.
+- Self-verify. We know footswitch selection harness is correct (GUI clicks). Click, then detect selection using the new harness.
 
 ---
 

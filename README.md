@@ -40,6 +40,7 @@ python3 choco.py footswitch-mode single_step_double_bank   # select a footswitch
 python3 choco.py device-mode advanced_custom             # select a device mode radio (one at a time)
 python3 choco.py device-mode get                          # detect the enabled device mode (white-dot radio)
 python3 choco.py trs-jack-mode expression_pedal          # select TRS jack mode (expression pedal / trs-midi)
+python3 choco.py trs-jack-mode get                        # detect the enabled TRS jack mode (white-dot radio)
 python3 choco.py trs-jack-reverse-polarity toggle        # toggle TRS jack polarity reversal (toggle|get)
 python3 choco.py remove-all             # clear the mapped events list
 python3 choco.py add                    # append a new event to the list
@@ -65,6 +66,8 @@ enabled one from the window: the selected radio shows a white center dot
 
 TRS jack modes (radio group, how the TRS socket reads; independent of
 device/footswitch mode; one at a time): `expression_pedal`, `trs_midi`.
+`trs-jack-mode get` detects the enabled one (same white-dot radio method
+as `device-mode get`).
 The TRS jack polarity reversal toggle (`trs-jack-reverse-polarity
 [toggle|get]`) is read back from the window's pixels (#08251d off /
 #33eab8 on, tolerance ±24).

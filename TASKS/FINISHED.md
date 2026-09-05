@@ -2,6 +2,16 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Detect TRS Jack mode (2026-09-05)
+
+- Refactored the white-dot radio detector into a shared
+  `_detect_radio_group(modes, label)` (screenshot; enabled radio shows a
+  white center dot, others dark; errors on 0 or >1).
+- `detect_trs_jack_mode()` + CLI `trs-jack-mode get` (mirrors
+  `device-mode get`).
+- Self-verified: clicked each TRS mode twice and detected each time —
+  4/4 OK.
+
 ## Task — Read device mode enablement from the GUI (2026-09-05)
 
 - `detect_device_mode()` + CLI `choco.py device-mode get`: screenshots
