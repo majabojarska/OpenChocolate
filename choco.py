@@ -630,7 +630,13 @@ def set_message(msg: MidiMessage, event_index: int = 0, bank: str = "a") -> int:
         d2 = msg.data2 if msg.data2 is not None else 0
         if edit_set_data2(d2):
             return 1
-    return edit_confirm(mtype=msg.mtype)
+    rc = edit_confirm(mtype=msg.mtype)
+    print(
+        f"set-message: bank {bank.upper()} slot {event_index + 1} = "
+        f"ch{msg.channel} {msg.mtype.value} {msg.data1} "
+        f"{msg.data2 if msg.mtype is not MidiType.PC else 0}"
+    )
+    return rc
 
 
 def cmd_state(json_out: bool) -> int:
@@ -1037,6 +1043,95 @@ def read_bank(bank: str = "a") -> list[dict] | None:
     return entries or None
 
 
+def read_bank_exact(bank: str = "a") -> list[dict] | None:
+    """Byte-exact bank reader via the `0D` register-read protocol.
+
+    Close+reopen FootCtrlPlus under a capture, rebuild the config chunk
+    at address 000000 from the device's `0D 49` responses, and decode the
+    slot-1 record (channel/type/data1/data2) from it. Currently decodes
+    slot 1 only (single verified record layout); multi-slot layout is a
+    known partial (spec). Returns a list with the decoded message(s), or
+    None on capture/decode failure.
+
+    Requires the app to be open (close/reopen happens internally).
+    """
+    import re as _re
+    import tempfile
+
+    wid = open_windows().get("footctrlplus")
+    if wid is None:
+        print("read_bank_exact: FootCtrlPlus not open", file=sys.stderr)
+        return None
+
+    # capture a fresh init (read-back) with both ports
+    tmp = tempfile.NamedTemporaryFile(suffix=".log", delete=False)
+    tmp.close()
+    log_path = tmp.name
+    try:
+        from midi import record
+
+        with record(
+            "SINCO", "WINE midi driver", log_file=log_path, tee=False, rescan_after=0
+        ) as _ctx:
+            close_footctrlplus()
+            for _ in range(60):
+                if top_of_stack(open_windows()) == "launchpad":
+                    break
+                time.sleep(0.1)
+            time.sleep(1.0)
+            start_foot_ctrl_plus()
+            for _ in range(120):
+                if top_of_stack(open_windows()) == "footctrlplus":
+                    break
+                time.sleep(0.1)
+            time.sleep(6)
+
+        # rebuild chunk 000000 from the pedal's 0D 49 responses
+        lines = open(log_path).read().splitlines()
+        cur: list[int] = []
+        pedal: list[bytes] = []
+        for ln in lines:
+            if "System exclusive" not in ln or not _re.search(r"^\s*16:0", ln):
+                continue
+            toks = _re.findall(r"\b[0-9A-Fa-f]{2}\b", ln)
+            toks = [t for t in toks if t.upper() != "16"]
+            if not toks:
+                continue
+            if cur and toks[0].upper() == "F0":
+                pedal.append(bytes(int(t, 16) for t in cur))
+                cur = toks
+            else:
+                cur += toks
+        if cur:
+            pedal.append(bytes(int(t, 16) for t in cur))
+        for b in pedal:
+            if (
+                len(b) > 8
+                and b[3] == 0x0D
+                and b[4] == 0x49
+                and (b[9], b[10], b[11]) == (0, 0, 0)
+            ):
+                p = b[12:-1]
+                if p[:5] == bytes([0, 0x10, 0x7E, 0, 0]):
+                    p = p[5:]
+                from trace import decode_slot1
+
+                msg = decode_slot1(p, bank)
+                print(
+                    f"bank {bank.upper()} slot 1 (exact): "
+                    f"ch{msg['channel']} {msg['type']} "
+                    f"{msg['data1']} {msg['data2']}"
+                )
+                return [msg]
+        print("read_bank_exact: no 000000 chunk in capture", file=sys.stderr)
+        return None
+    finally:
+        try:
+            os.unlink(log_path)
+        except OSError:
+            pass
+
+
 def close_editor() -> int:
     """Close FootCtrlPlus via the Escape key."""
     return cmd_close_editor()
@@ -1235,6 +1330,13 @@ def main(argv=None) -> int:
     )
     p_read.add_argument("bank", nargs="?", default="a", choices=["a", "b"])
 
+    p_readx = sub.add_parser(
+        "read-bank-exact",
+        help="byte-exact bank reader via the 0D register-read init "
+        "(reopens FootCtrlPlus; currently decodes slot 1)",
+    )
+    p_readx.add_argument("bank", nargs="?", default="a", choices=["a", "b"])
+
     p_remove = sub.add_parser("remove-all", help="click 'Remove all' on FootCtrlPlus")
     p_remove.add_argument(
         "--absolute",
@@ -1409,6 +1511,9 @@ def main(argv=None) -> int:
                 f"{e['data1']} {e['data2']}"
             )
         return 0
+    if args.command == "read-bank-exact":
+        entries = read_bank_exact(args.bank)
+        return 0 if entries is not None else 1
     if args.command == "remove-all":
         return remove_all(args.absolute, bank=args.bank)
     if args.command == "add":

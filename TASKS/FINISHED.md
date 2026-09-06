@@ -2,6 +2,163 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Bank B multi-slot mapping (2026-09-06, night checkpoint)
+
+- **Bank B slot 1 fully decoded & verified** (true 1-slot and 2-slot
+  banks): @199 `ch-1`, @200 `typeidx<<1`, @201 `(d1&0x1F)<<2`,
+  @202 `(d2&0xF)<<3|(d1>>5)`, @203 `0x10|(d2>>4)` — 23/25 captures
+  exact (2 misses = stale first-read-backs). `decode_slot1(chunk,"b")`
+  updated; `decode_b_slots()` returns slot 1.
+- **Bank B slots 2+**: continuously-interleaved bit-stream, byte
+  alignment shifts with content (partial observations: d1 plain,
+  d2<<1, ch bits @204<<5/@205 carry, type bits @205-bit6/@206-bit0).
+  Not reliably decodable from fixed offsets — needs the firmware
+  stream algorithm. Documented in spec §4.4.
+- ~30 captures this session (023150-024626) archived in
+  `captures/09_06/`; probe tables in /tmp/b*.json.
+
+## Task — Map `0D` register-read — bank A 10 slots decoded (2026-09-06)
+
+- **All 10 bank A slots decoded** (dense 5-byte records, each slot a
+  different packing, verified 9/10 byte-exact on the 10-slot capture;
+  the single "X" was pc's stale-data2 byte):
+  - s1 @108-112, s2 @113-119, s3 @119-125, s4 @125-130, s5 @130-135
+  - s6 @137-141, s7 @142-147, s8 @148-153, s9 @153-156, s10 @159-163
+  (full encodings in spec §4.4; `trace.decode_bank_a_slots()` returns 10).
+- **Bank B multi-slot** conclusion: continuously-encoded bit-stream with
+  values spilling across byte boundaries (d2 changes shift @199 and later
+  bytes) — NO fixed per-slot offsets. This explains the earlier "digits
+  2/0 decode flakily" confusion: stream offsets depend on all preceding
+  values. Bank B 1-slot is decodable (@200 ch-1 etc.); multi-slot needs a
+  stream decoder, not fixed offsets.
+
+## Task — Map `0D` register-read — slots 6-10 attempt (2026-09-06)
+
+- **Slot 6** (10-slot layout, @136+): ch/type/d1 partially decoded (@137
+  `(ch-1)<<1`, @138 type 0x04/0x08, @139 `(d1&7)<<3`); d2 and d1's high
+  bits are interleaved in @140/@141 (dense packing, unresolved).
+- Slots 7-10: 5-byte records present at @141+ but unmapped.
+- **Bank B multi-slot**: 3-slot records @200-214 + mirror @675+, dense
+  packing differs from 1-slot (partial).
+- Consolidation: bank A slots 1-5 are fully exact; 6+ need the same
+  per-field diff cycle. Spec §4.4 updated.
+
+## Task — Map `0D` register-read — bank A slots 4-5 + 10-slot (2026-09-06)
+
+- **Bank A slots 4-5 fully decoded** (5-slot layout):
+  - slot4 @125-130: @125 `(ch-1)<<5`, @126 `type|carry`, @128 d1 plain,
+    @129 `(d2&0x3F)<<1`, @130 `((d2>>6)<<2)|1`.
+  - slot5 @130-135: @131 `(ch-1)<<3`, @132 type (0x10 cc/0x20 noteon),
+    @133 `(d1&3)<<5`, @134 `(d1>>2)|((d2&1)<<6)`, @135 `d2>>1`.
+  - Verified exact on the 5-slot capture (all 5 slots decode correctly).
+- **10-slot bank A**: slots 1-5 decode exactly at their offsets; slots
+  6-10 are a dense 5-byte-record stream at @136+ (partial: ch-1<<1, type,
+  d1, d2>>6 observed).
+- **Bank B multi-slot**: records at @200-214 (5-byte each, 3-slot case) +
+  a mirror at @675+; encoding differs from the 1-slot case (dense
+  packing) — partial.
+- Spec §4.4 updated.
+
+## Task — Map `0D` register-read to bank contents — 5-slot mapping (2026-09-06)
+
+- **Bank A slots 1-3 fully decoded and verified exact** in both 3-slot
+  and 5-slot banks (offsets stable for the first 3 records):
+  - slot1: @108-112 (ch<<4|type|d1 LSB|d1>>1|d2)
+  - slot2: @113-119 (ch<<2, type, packed d1/d2)
+  - slot3: @119-125 — **completed**: @122 `(d1&0x1F)<<2`,
+    @123 `((d2&0x1F)<<3)|(d1>>5)`, @124 `(d2>>5)` high bits (verified
+    noteoff ch8/55/77, cc ch5/70/110).
+- **Bank A slots 4-5** (5-slot layout): slot4 d1 plain @128; slot5
+  `d1>>2`/`d2>>1` observed (ch/type + exact offsets pending).
+- `trace.decode_bank_a_slots()` decodes slots 1-3 (exact) + 4-5 (partial).
+- Spec §4.4 updated.
+
+## Task — 3-per-bank run + OCR-flakiness check (2026-09-06)
+
+- Filled bank A + bank B with 3 items each (values avoiding digits 2/0).
+- **Confirmed the operator's hypothesis: OCR is the flaky component.**
+  `read-bank` misread bank B slot 1 data2 88→38, slot 2 data1 19→13, and
+  missed slot 3 entirely (2 runs, consistent wrong values).
+- The `0D` decode is exact where mapped: bank A slots 1-3 decoded
+  perfectly (ch4 cc 17 55 / ch6 noteon 31 99 / ch8 noteoff 55 77).
+- **Bank B multi-slot layout is non-contiguous**: slot 1 @~200, slots 2+
+  @~676+ (dense bit-packed; changing slot-2 data2 64→65 rewrote a 5-byte
+  block @682-686). The 1-slot offsets don't generalize. Recorded in spec
+  §4.4.
+
+## Task — Map `0D` register-read to bank contents — completed for slot 1 (2026-09-06)
+
+### Byte-exact slot-1 decoding (both banks) — SOLVED, 10/10 random verified
+
+- **Bank A slot 1** record (000000 chunk) fully bit-decoded: @108
+  `((ch-1)&7)<<4`, @109 `type_code|((ch-1)>>3)` (ch>=9 bit), @110
+  `(d1&1)<<6`, @111 `d1>>1`, @112 `d2` plain, @1152-53 checksum.
+- **Bank B slot 1** (~@199-205): @200 `ch-1`, @201 `type_index<<1`,
+  @202 `d1<<2`, @203 `d2<<3`, @204 high bits.
+- **10-capture random verification** (double-bank mode in effect): random
+  ch 1-16 / odd+even data1 / all 4 types / random data2 — 10/10 decoded
+  EXACTLY (caught + fixed the ch>=9 wrap and odd-data1 LSB spill).
+- `trace.decode_slot1(chunk, bank)` + `choco.read-bank-exact` verified
+  live both banks. Spec §4.3 rewritten.
+
+### Other layouts extracted (recorded in spec §4.4)
+
+- bank A slot 2 @113-119 (ch<<2, type 0x08/0x10, packed d1/d2 across
+  @116-118), slot 3 @120-124 (ch-1, typeidx<<1, (d1&0x1F)<<2,
+  (d2<<3|2), (d2>>5)<<1)
+- bank B slot 2 @204-209 (d1 plain@208, d2<<1@209; ch/type packed
+  @205-207 partial)
+- **footswitch regions**: A ~@108-300, B ~@585+ (same 000000 chunk;
+  per-footswitch layout; region-specific re-mapping needed for C/D)
+- Shared white-marker/slot logic + bank-aware `set_message` logging
+
+### Remaining (recorded, lower priority)
+
+- bank B slot 2 ch/type packing, bank B slots 3+, footswitch C/D regions,
+  bank A slot 3 d1>=32 high bits. Same change-one-field-diff technique.
+
+## Task — Map `0D` register-read to bank contents — continuation (2026-09-06)
+
+- **Bank A slot layouts** extracted (single-field diffs, captures
+  `captures/09_06/midi_20260906_012*`):
+  - slot 1: @108 (ch−1)<<4, @109 type (0x20/0x40/0x60/0x00), @111 d1>>1,
+    @112 d2 plain.
+  - slot 2: @114 (ch−1)<<2, @115 type (0x08 cc/0x10 noteon),
+    @116 (d1&7)<<4, @117 ((d2&3)<<5)|(d1>>3), @118 0x40+(d2>>2) (verified
+    by d1=60/61/62/63/65 sweep).
+  - slot 3: @120–124 (partially mapped; @122 tracks data1).
+  - Records are variable-length, per-slot differing encodings (no uniform
+    stride).
+- **Bank B**: lives at high offsets of the same `000000` chunk (~@199+);
+  slot 1: @200 ch−1, @203 d2<<3 (data1/type still unmapped).
+  `read-bank-exact b` now decodes bank B channel+data2 live (verified:
+  `ch3 ? 0 2` for cc ch3/1/2).
+- `trace.decode_slot1(chunk, bank)` + `read-bank-exact` extended; spec
+  §4.4 documents the layouts (still marked partial).
+- Also: `set_message` now logs the bank+slot ("bank A/B slot N = ...").
+- **Remaining (queued):** slot 3 data1/type encoding, bank B type/data1,
+  bank B slots 2+, other footswitches; 10-random-capture verification.
+
+## Task — Map `0D` register-read to bank contents (2026-09-06, partial)
+
+- Captured 9 init read-backs (close+reopen FootCtrlPlus under record) in
+  `captures/09_06/`, each ~23 `0D 49` responses (two dense chunks: addr
+  `000000` and `710700`, rest near-empty).
+- **Slot-1 record byte-exact layout mapped** via single-field-change
+  diffs (channel 1→2, data1 64→50, data2 5→80/100, type CC→NoteON→
+  NoteOFF→PC):
+  - chunk `000000` payload (after `00 10 7E 00 00` marker):
+    offset 108 channel `(ch-1)<<4`, 109 type (0x20/0x40/0x60/0x00),
+    111 data1>>1, 112 data2 plain byte, 1152-53 checksum.
+  - Decoded all 9 captures exactly (9/9). `trace.decode_slot1()` and
+    `choco.read_bank_exact()` (CLI `read-bank-exact`) implemented and
+    verified live: decodes `ch2 pc 50` from a fresh init.
+  - Spec §4.3 documents it; streaks/stride experiments recorded.
+- **Not done (queued):** slots 2+, bank B, other footswitches layout;
+  10-random-capture verification (task requirement). Multi-slot data2 is
+  not a plain byte in `000000` — likely lives in `710700` w/ different
+  encoding; same diff technique applies.
+
 ## Task — Detect footswitch mode (2026-09-05)
 
 - `FOOTSWITCH_MODE_RADIOS` (strip banks from the 3-tuples) +

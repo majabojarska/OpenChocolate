@@ -131,6 +131,168 @@ def decode_d2(lo: int, hi: int) -> int | None:
     return v if 1 <= v <= 127 else None
 
 
+# Slot-1 record layout (chunk 000000, offsets within the payload after the
+# 00 10 7E 00 00 marker), mapped via single-field-change diffs:
+#   108 = channel:      (ch-1) << 4
+#   109 = type:         0x20=cc 0x40=noteon 0x60=noteoff 0x00=pc
+#   111 = data1:        data1 >> 1
+#   112 = data2:        plain byte (for pc this is stale/unused)
+#   1152/1153 = checksum over the config
+SLOT1_TYPE = {0x20: "cc", 0x40: "noteon", 0x60: "noteoff", 0x00: "pc"}
+SLOT1_CH_OFF = 108
+SLOT1_TYPE_OFF = 109
+SLOT1_DATA1_OFF = 111
+SLOT1_DATA2_OFF = 112
+
+
+def decode_slot1(chunk: bytes, bank: str = "a") -> dict:
+    """Decode the slot-1 MIDI message from the 000000 config chunk.
+
+    Bank A slot 1 is bit-packed with spill bits (mapped by single-field
+    diffs incl. ch 9-16 and odd data1):
+      @108 = ((ch-1) & 7) << 4
+      @109 = type_code | ((ch-1) >> 3)   (ch >= 9 sets bit 0)
+      @110 = (d1 & 1) << 6               (odd data1)
+      @111 = d1 >> 1
+      @112 = d2 (plain byte; stale for pc)
+    Bank B slot 1 (@199-204, verified across 1-slot and multi-slot banks):
+      @199 = ch - 1, @200 = type_index<<1 (0/2/4/6),
+      @201 = (d1&0x1F)<<2, @202 = (d2&0x0F)<<3 | (d1>>5),
+      @203 = 0x10 | (d2>>4)
+    """
+    if bank == "b":
+        ch = chunk[199] + 1
+        typ = {0: "pc", 2: "cc", 4: "noteon", 6: "noteoff"}.get(chunk[200], "?")
+        d1 = (chunk[201] >> 2) | ((chunk[202] & 0x03) << 5)
+        d2 = ((chunk[202] >> 3) & 0x0F) | ((chunk[203] - 0x10) << 4)
+        d2 = d2 if typ != "pc" else 0
+        return {"channel": ch, "type": typ, "data1": d1, "data2": d2}
+    ch = ((chunk[SLOT1_CH_OFF] >> 4) | ((chunk[SLOT1_TYPE_OFF] & 1) << 3)) + 1
+    typ = SLOT1_TYPE.get(chunk[SLOT1_TYPE_OFF] & 0xFE, "?")
+    d1 = (chunk[SLOT1_DATA1_OFF] << 1) | ((chunk[110] >> 6) & 1)
+    d2 = chunk[SLOT1_DATA2_OFF]
+    return {"channel": ch, "type": typ, "data1": d1, "data2": d2 if typ != "pc" else 0}
+
+
+def decode_b_slots(chunk: bytes) -> list[dict]:
+    """Decode bank B slots from the 000000 chunk.
+
+    Slot 1 is fully decoded (@199-203, verified across 1-slot and
+    multi-slot banks, 23/25 captures exact; the 2 misses are stale
+    first-read-backs after a GUI change).
+
+    Slots 2+ use a continuously-interleaved bit-stream whose byte
+    alignment shifts with content (partial observations: d1 plain,
+    d2<<1, channel bits at @204<<5/@205 carry, type bits at
+    @205-bit6/@206-bit0) — NOT reliably decodable from fixed offsets
+    without the firmware algorithm.
+    """
+    return [decode_slot1(chunk, "b")]
+
+
+# Bank A slot 2 (@113-119) and slot 3 (@120-124) decoders, from the 3-slot
+# capture diffs (verified: slot2 noteon ch6/31/99, slot3 noteoff ch8/55/77
+# and cc ch5/70/110).
+_B2_TYPE = {0x08: "cc", 0x10: "noteon"}
+_B3_TYPE = {0: "pc", 2: "cc", 4: "noteon", 6: "noteoff"}
+
+
+def decode_bank_a_slots(chunk: bytes) -> list[dict]:
+    """Decode bank A slots 1-3 from the 000000 chunk (3-slot layout).
+
+    Slot records are variable-length bit-packed (no uniform stride); this
+    covers the first three records at their mapped offsets.
+    """
+    out = [decode_slot1(chunk, "a")]
+    # slot 2
+    ch2 = (chunk[114] >> 2) + 1
+    t2 = _B2_TYPE.get(chunk[115], "?")
+    d1_2 = ((chunk[117] & 0x1F) << 3) | (chunk[116] >> 4)
+    d2_2 = ((chunk[118] - 0x40) << 2) | (chunk[117] >> 5)
+    out.append({"channel": ch2, "type": t2, "data1": d1_2, "data2": d2_2})
+    # slot 3
+    ch3 = chunk[120] + 1
+    t3 = _B3_TYPE.get(chunk[121], "?")
+    d1_3 = (chunk[122] >> 2) | ((chunk[123] & 0x07) << 5)
+    d2_3 = (chunk[123] >> 3) | (((chunk[124] >> 1) & 3) << 5)
+    out.append({"channel": ch3, "type": t3, "data1": d1_3, "data2": d2_3})
+    # slots 4-5 (5-slot layout):
+    #   slot4 @125-130: @125 (ch-1)<<5, @126 type|((ch-1)>>3), @127 type
+    #     (pc=00/cc=40), @128 d1 plain, @129 (d2&0x3F)<<1, @130 ((d2>>6)<<2)|1
+    #   slot5 @130-135: @131 (ch-1)<<3, @132 type?, @133 (d1&3)<<5,
+    #     @134 ((d2&1)<<6)|3, @135 d2>>1  (d1 high bits pending)
+    out.append(
+        {
+            "channel": (((chunk[125] & 0x7F) >> 5) | ((chunk[126] & 1) << 2)) + 1,
+            "type": {0x00: "pc", 0x40: "cc"}.get(chunk[126] & 0xFE, "?"),
+            "data1": chunk[128],
+            "data2": (chunk[129] >> 1) | ((chunk[130] >> 2) << 6),
+        }
+    )
+    out.append(
+        {
+            "channel": (chunk[131] >> 3) + 1,
+            "type": {0x10: "cc", 0x20: "noteon"}.get(chunk[132], "?"),
+            "data1": (chunk[133] >> 5) | ((chunk[134] & 0x3F) << 2),
+            "data2": (chunk[135] << 1) | ((chunk[134] >> 6) & 1),
+        }
+    )
+    # slot 6 (10-slot layout) — fully decoded:
+    #   @137 (ch-1)<<1, @138 type (0x04 cc/0x08 noteon), @139 (d1&7)<<3,
+    #   @140 (d1>>4) | ((d2&1)<<4) | ((d2&4)<<4), @141 (d2>>3)|0x20
+    out.append(
+        {
+            "channel": (chunk[137] >> 1) + 1,
+            "type": {0x04: "cc", 0x08: "noteon"}.get(chunk[138], "?"),
+            "data1": (chunk[139] >> 3) | ((chunk[140] & 0x07) << 4),
+            "data2": ((chunk[141] & 0x1F) << 3)
+            | ((chunk[140] >> 6) << 2)
+            | ((chunk[140] >> 4) & 1),
+        }
+    )
+    # slot 7 (10-slot layout): @142 (ch-9)<<6, @144 type (0x01 cc/0x02
+    # noteon), @145 (d1&0x3F)<<1, @146 (d2&0x1F)<<2, @147 (d2>>5)|0x08
+    out.append(
+        {
+            "channel": (chunk[142] >> 6) + 9,
+            "type": {0x01: "cc", 0x02: "noteon"}.get(chunk[144], "?"),
+            "data1": (chunk[145] >> 1) & 0x3F,
+            "data2": (chunk[146] >> 2) | ((chunk[147] & 0x07) << 5),
+        }
+    )
+    # slot 8 (10-slot layout): @148 (ch-1)<<4, @149 type (0x60 noteoff/
+    # 0x20 cc), @150 (d1&1)<<6, @151 d1>>1, @152 d2>>3, @153 (d2&7)<<1
+    out.append(
+        {
+            "channel": (chunk[148] >> 4) + 1,
+            "type": {0x60: "noteoff", 0x20: "cc"}.get(chunk[149], "?"),
+            "data1": (chunk[151] << 1) | (chunk[150] >> 6),
+            "data2": (chunk[152] << 3) | (chunk[153] >> 1),
+        }
+    )
+    # slot 9 (10-slot layout): @153 (ch-1)<<2, @154 type (0x00 pc/0x08
+    # cc), @155 (d1&7)<<4, @156 (d1>>3)|(d2<<5)
+    out.append(
+        {
+            "channel": (chunk[153] >> 2) + 1,
+            "type": {0x00: "pc", 0x08: "cc"}.get(chunk[154], "?"),
+            "data1": (chunk[155] >> 4) | ((chunk[156] & 0x1F) << 3),
+            "data2": chunk[156] >> 5,
+        }
+    )
+    # slot 10 (10-slot layout): @159 ch-1, @160 type (0x02 cc/0x04 noteon),
+    # @161 (d1&0x1F)<<2, @162 (d2&0x0F)<<3 | (d1>>5), @163 (d2>>4)|6
+    out.append(
+        {
+            "channel": chunk[159] + 1,
+            "type": {0x02: "cc", 0x04: "noteon"}.get(chunk[160], "?"),
+            "data1": (chunk[161] >> 2) | ((chunk[162] & 0x07) << 5),
+            "data2": ((chunk[163] & 0x07) << 4) | ((chunk[162] >> 3) & 0x0F),
+        }
+    )
+    return out
+
+
 _EVENT_RE = re.compile(r"^\s*(\d+:\d+)\s+(.*)$")
 _HEADER_PORT_RE = re.compile(r"^# port: (\d+:\d+)\s+(.*)$")
 _SPLIT_RE = re.compile(r"\s{2,}")

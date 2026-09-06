@@ -297,6 +297,70 @@ slot 5: 0x26-0x28
 The exact per-field meaning of these bytes (type/channel/data1) is **not yet
 decoded** (see §6.1).
 
+### 4.3 `0D` config record — bank slot 1 (SOLVED, byte-exact)
+
+From the `0D` init read-back (`000000` chunk, payload after the
+`00 10 7E 00 00` marker), the **slot-1 record** of the displayed bank was
+mapped by single-field-change diffs + a 10-random-capture verification
+(`captures/09_06/midi_20260906_0138*.log`, all values across ch 1-16,
+odd/even data1, all 4 types, random data2 — **10/10 decoded exactly**):
+
+Bank A slot 1 (offsets within `000000` payload):
+
+| offset | field | encoding |
+|---|---|---|
+| 108 | channel | `((ch−1) & 7) << 4` |
+| 109 | type | `type_code \| ((ch−1) >> 3)` — type_code: `0x20`=cc, `0x40`=noteon, `0x60`=noteoff, `0x00`=pc; ch≥9 sets bit 0 |
+| 110 | data1 LSB | `(data1 & 1) << 6` (odd data1) |
+| 111 | data1 | `data1 >> 1` |
+| 112 | data2 | plain byte (stale/unused for pc) |
+| 1152…1153 | checksum | derived from config content |
+
+Bank B slot 1 (offsets ~199–205, same chunk):
+
+| offset | field | encoding |
+|---|---|---|
+| 200 | channel | `ch − 1` |
+| 201 | type | `type_index << 1` (0=pc, 2=cc, 4=noteon, 6=noteoff) |
+| 202 | data1 | `data1 << 2` |
+| 203 | data2 | `data2 << 3` |
+| 204 | data2 high bits | (0 for small values) |
+
+`trace.decode_slot1(chunk, bank)` implements both;
+`choco.read_bank_exact()` closes+reopens FootCtrlPlus under a capture,
+rebuilds the chunk, and prints the decoded slot 1.
+
+### 4.4 Extracted slot layouts (bank A `000000` + bank B) — partial
+
+Continued diff experiments (captures `captures/09_06/midi_20260906_012*`,
+`013*`): bank A slot records are variable-length, **not uniformly strided**, each
+slot a different internal encoding:
+
+| record | location | mapped fields |
+|---|---|---|
+| bank A slot 1 | @108–112 | complete (§4.3 above) |
+| bank A slot 2 | @113–119 | @114 ch `(ch−1)<<2`, @115 type (0x08 cc / 0x10 noteon), @116 `(d1&7)<<4`, @117 `((d2&3)<<5)|(d1>>3)`, @118 `0x40+(d2>>2)` |
+| bank A slot 3 | @119–125 | @120 `ch−1`, @121 `type_index<<1`, @122 `(d1&0x1F)<<2`, @123 `((d2&0x1F)<<3)|(d1>>5)`, @124 `(d2>>5)` high bits — **fully decoded** (verified noteoff ch8/55/77, cc ch5/70/110) |
+| bank A slot 4 | @125–130 (5-slot) | @125 `(ch-1)<<5`, @126 `type|((ch-1)<<5>>7)`, @128 `d1` plain, @129 `(d2&0x3F)<<1`, @130 `((d2>>6)<<2)|1` — **fully decoded** |
+| bank A slot 5 | @130–135 (5-slot) | @131 `(ch-1)<<3`, @132 type (0x10 cc/0x20 noteon), @133 `(d1&3)<<5`, @134 `(d1>>2)|((d2&1)<<6)`, @135 `d2>>1` — **fully decoded** |
+| bank A slots 6-10 | @136+ (10-slot) | 5-byte records, each a different dense packing — **all decoded**: s6 @137 `(ch-1)<<1`/@138 type/@139 `(d1&7)<<3`/@140 `(d1>>4)|((d2&1)<<4)|((d2&4)<<4)`/@141 `(d2>>3)|0x20`; s7 @142 `(ch-9)<<6`/@144 type/@145 `(d1&0x3F)<<1`/@146 `(d2&0x1F)<<2`/@147 `(d2>>5)|8`; s8 @148 `(ch-1)<<4`/@149 type/@150 `(d1&1)<<6`/@151 `d1>>1`/@152 `d2>>3`/@153 `(d2&7)<<1`; s9 @153 `(ch-1)<<2`/@154 type/@155 `(d1&7)<<4`/@156 `(d1>>3)|(d2<<5)`; s10 @159 `ch-1`/@160 type/@161 `(d1&0x1F)<<2`/@162 `(d2&0x0F)<<3|(d1>>5)`/@163 `(d2>>4)|6` |
+| bank B slot 1 | ~@199–204 | @199 `ch−1`, @200 `type_index<<1` (0/2/4/6), @201 `(d1&0x1F)<<2`, @202 `(d2&0x0F)<<3 \| (d1>>5)`, @203 `0x10 \| (d2>>4)` — **fully decoded & verified across 1-slot and multi-slot banks** (23/25 captures exact; the 2 misses were stale first-read-backs) |
+| bank B slots 2+ | @204+ (multi-slot) | continuously-interleaved bit-stream; byte alignment shifts with content. Partial: d1 plain, `d2<<1`, channel bits @204<<5/@205 carry, type bits @205-bit6/@206-bit0. **Not reliable from fixed offsets without the firmware algorithm.** |
+
+**IMPORTANT — bank B multi-slot is NON-CONTIGUOUS:** with 3 slots, bank B's
+slot 1 sits at ~@200 but slots 2+ live at ~@676+ (footswitch-B region) with
+a dense bit-packed re-encoding (changing slot-2 data2 64→65 rewrote a
+5-byte block @682-686). The 1-slot offsets do NOT generalize to multi-slot.
+
+**OCR flakiness confirmed (2026-09-06):** `read-bank` OCR misread bank B
+slot 1 data2 88→38, slot 2 data1 19→13, and missed slot 3 entirely — the
+OCR is the flaky component, not the `0D` decode (which is exact where the
+layout is mapped).
+
+**Footswitch regions** (same `000000` chunk, per-footswitch offsets):
+footswitch A ~@108–300, footswitch B ~@585+. Each footswitch has its own
+region with its own record layout; same diff technique applies per region.
+
 ---
 
 ## 5. Checksum

@@ -86,7 +86,13 @@ OCRs the bank region (A: (590,640)-(883,852), B shifted +340px X):
 ```sh
 python3 choco.py read-bank a     # bank A (default)
 python3 choco.py read-bank b     # bank B
+python3 choco.py read-bank-exact a  # byte-exact slot-1 read via 0D register-read init (reopens editor)
 ```
+
+`read-bank-exact` decodes the slot-1 MIDI record directly from the device
+config (the `0D` register-read protocol, chunk `000000`) — no OCR. It
+closes and re-opens FootCtrlPlus to trigger the read-back. Currently
+decodes slot 1 only (see REVERSED_PROTOCOL_SPEC.md §4.3).
 
 Output is one row per parsed entry:
 ```
