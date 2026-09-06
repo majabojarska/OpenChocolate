@@ -11,18 +11,26 @@ Open work, roughly in priority order. Items marked **[spec]** are detailed in
 
 ---
 
-## Task — Bank B slots 2-10 bit-stream decoder
+## Task — Bank A slots 8-10 re-basing at TRUE offsets
 
-- Bank B slot 1 is decoded (spec §4.4); slots 2+ are a continuously
-  interleaved bit-stream whose byte alignment shifts with content. To
-  finish: collect a large (slots × fields × values) capture matrix and
-  reverse the stream algorithm (or brute-force the bit widths per
-  field) so all 10 bank B slots decode.
+**Context (2026-09-06):** Bank B is now FULLY solved (all 10 slots
+byte-exact, see FINISHED). The remaining known gap: bank A slots 8-10
+spec rows were fit to buggy-shifted bytes (the old `0x16`-dropping
+parser; e.g. true s8 = @148-152 with d2 PLAIN, not `d2>>3`+
+`(d2&7)<<1`). Bank A slots 1-7 verified unaffected.
+
+To finish:
+- Re-derive bank A s8-s10 field layouts on the fixed parser using the
+  same single-field diff campaign (`camp2.py` + `analyze_captures.py`,
+  now with `--bank b` default not needed... bank A fills use
+  `remove-all`/`add`/`set-message --bank a`). The 10-slot bank A state
+  lives in `captures/09_06/camp_*.log` (bank A side).
+- Then the final cross-check: `read-bank-exact a` returns all 10 bank A
+  messages byte-exact (bank B already does).
 
 ---
 
-## Task — Map the `0D` register-read protocol to the config slot layout
-## Task — Map the `0D` init register-read protocol to the Bank A/B contents
+## Task — Map the `0D` init register-read protocol to the Bank A/B contents (DONE 2026-09-06: bank B 10/10, bank A 1-7; see task above)
 
 ### Context
 
@@ -34,23 +42,14 @@ OCR (`read-bank`) gives an overview but not byte-exact values — the exact bank
   `F0 00 32 0D 41 00 00 00 02 <addr-lo> <addr-hi> <addr2> 00 00 10 7E 00 00 <cmd> 00 F7`,
   device replies `F0 00 32 0D 49 ... <same addr> ... <payload> F7`.
 - Address sweep is sequential/descending; ~24 requests, 17 responses observed (may be split-by-aseqdump).
-- Each response carries a config chunk; together they form the full device state (spec §2c). We know where a few fields live (Data2 at blob 0x0B/0x0C for slot 1 of the displayed switch/bank) but not the full per-slot / per-bank / per-footswitch layout (spec §6.4/6.5).
+- Each response carries a config chunk; together they form the full device state (spec §2c).
 
-### Goals
+### Status (2026-09-06)
 
-1. Capture a full `0D` init read-back (cold start of FootCtrlPlus) with
-   both ports, reconstruct the complete config image (handle aseqdump
-   line-splitting by F0 starts).
-2. Correlate the config image with a **known** bank state (set a fixed, distinctive set of messages via the harness — e.g. 11 in bank A: CC/Note ON/Note OFF/PC with recognizable values — then OCR/read the bank as ground truth).
-3. Diff config images across variations (bank A vs B, footswitch A vs B,
-   device modes) to map where each slot's fields (channel/type/data1/data2)
-   live in the blob. Produce a documented byte-exact layout.
-4. Implement a `read-bank-exact` (or similar) harness command that decodes
-   the config image into the list of messages per bank, with no OCR.
-
-### Verification
-
-- For a populated bank of known messages, `read-bank-exact` returns exactly
-  those messages (bytes, not OCR).
-- Cross-check against the (imperfect) OCR to sanity-check the decode.
-- Perform 10 captures with randomly generated bank contents. Make sure to use a double-bank footswitch mode.
+- Goals 1-4 largely DONE: full init read-back reconstructed (fixed the
+  aseqdump line-splitting handling + the 0x16-parser bug); bank B slots
+  1-2 and bank A slots 1-7 decoded byte-exact via diff campaigns;
+  `read-bank-exact` returns byte-exact messages per bank (no OCR) for
+  the mapped slots.
+- Remaining: bank B slots 3-10 + bank A slots 8-10 at TRUE offsets
+  (see the task above), then the 10-random-capture verification.

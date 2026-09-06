@@ -155,16 +155,21 @@ def decode_slot1(chunk: bytes, bank: str = "a") -> dict:
       @110 = (d1 & 1) << 6               (odd data1)
       @111 = d1 >> 1
       @112 = d2 (plain byte; stale for pc)
-    Bank B slot 1 (@199-204, verified across 1-slot and multi-slot banks):
-      @199 = ch - 1, @200 = type_index<<1 (0/2/4/6),
-      @201 = (d1&0x1F)<<2, @202 = (d2&0x0F)<<3 | (d1>>5),
-      @203 = 0x10 | (d2>>4)
+    Bank B slot 1 (@200-204, offset pinned by locating the raw bytes in
+    the capture; earlier notes said @199-203 which was a +1 off-by-one):
+      @200 = ch - 1, @201 = type_index<<1 (0/2/4/6),
+      @202 = (d1&0x1F)<<2, @203 = (d2&0x0F)<<3 | (d1>>5),
+      @204 = 0x10 | (d2>>4)   (bit 4 optional in some read-backs)
     """
     if bank == "b":
-        ch = chunk[199] + 1
-        typ = {0: "pc", 2: "cc", 4: "noteon", 6: "noteoff"}.get(chunk[200], "?")
-        d1 = (chunk[201] >> 2) | ((chunk[202] & 0x03) << 5)
-        d2 = ((chunk[202] >> 3) & 0x0F) | ((chunk[203] - 0x10) << 4)
+        ch = chunk[200] + 1
+        typ = {0: "pc", 2: "cc", 4: "noteon", 6: "noteoff"}.get(chunk[201], "?")
+        d1 = (chunk[202] >> 2) | ((chunk[203] & 0x03) << 5)
+        # d2: low nibble in @203 bits 3-6 ((d2&0xF)<<3), high nibble in
+        # @204 bits 0-3 (d2>>4). @204 bit 4 is an optional marker bit
+        # (0x10, seen in some firmware/read-back variants); masking it off
+        # is always correct since d2 <= 127 never sets it.
+        d2 = ((chunk[203] >> 3) & 0x0F) | ((chunk[204] & 0x0F) << 4)
         d2 = d2 if typ != "pc" else 0
         return {"channel": ch, "type": typ, "data1": d1, "data2": d2}
     ch = ((chunk[SLOT1_CH_OFF] >> 4) | ((chunk[SLOT1_TYPE_OFF] & 1) << 3)) + 1
@@ -174,20 +179,196 @@ def decode_slot1(chunk: bytes, bank: str = "a") -> dict:
     return {"channel": ch, "type": typ, "data1": d1, "data2": d2 if typ != "pc" else 0}
 
 
+_BB_TYPE = {0: "pc", 1: "noteon", 2: "cc", 3: "noteoff"}
+# bank B slots 4/5/6 use an inverted code table (cc before noteon).
+_BB_TYPE_S5 = {0: "pc", 1: "cc", 2: "noteon", 3: "noteoff"}
+
+# Bank B slot record starts (fixed offsets within the 000000 chunk),
+# raw-pinned + diff-mapped on 2026-09-06. Records are adjacent but each
+# slot has its own bit-packing (no uniform stride); slots 9-10 repeat
+# the slot-2/slot-3 formats (period 7... actually 2->9, 1->8, 3->10).
+_BB_OFFS = {
+    1: 200,  # format A (same as bank-A slot 1 in bank B packing)
+    2: 205,  # format B
+    3: 211,  # format C
+    4: 217,  # format D
+    5: 222,  # format E
+    6: 228,  # format F
+    7: 234,  # format G (partial)
+    8: 240,  # format A (same as slot 1)
+    9: 245,  # format B (same as slot 2)
+    10: 251,  # format C (same as slot 3)
+}
+
+# The 2-bit type codes stored per format (LSB-first where scattered).
+_TYPE_A = {0: "pc", 2: "cc", 4: "noteon", 6: "noteoff"}  # slot1/8: value*2
+_TYPE_C = _BB_TYPE  # slot 3/10
+_TYPE_D = _BB_TYPE_S5  # slot 4/6: code << 2 (inverted table)
+_TYPE_E = _BB_TYPE_S5  # slot 5: code stored directly
+_TYPE_G = _BB_TYPE  # slot 7: bit0<<4 | bit1<<3
+
+
+def _clean(msg: dict) -> dict | None:
+    """None if the slot record is all zeros (empty slot) or out of range."""
+    if msg["type"] == "?":
+        return None
+    if not 1 <= msg["channel"] <= 16:
+        return None
+    if not 0 <= msg["data1"] <= 127:
+        return None
+    if msg["type"] != "pc" and not 0 <= msg["data2"] <= 127:
+        return None
+    return msg
+
+
+def _any(b: bytes, off: int, n: int) -> bool:
+    return any(b[off : off + n])
+
+
+def _fmt_a(b: bytes, off: int) -> dict | None:
+    """ch-1 plain; type*2; (d1&0x1F)<<2; ((d2&0xF)<<3)|(d1>>5); 0x10|(d2>>4)."""
+    if not _any(b, off, 5):
+        return None
+    typ = _TYPE_A.get(b[off + 1], "?")
+    d1 = (b[off + 2] >> 2) | ((b[off + 3] & 3) << 5)
+    d2 = ((b[off + 3] >> 3) & 0x0F) | ((b[off + 4] & 0x0F) << 4)
+    return _clean(
+        {
+            "channel": b[off] + 1,
+            "type": typ,
+            "data1": d1,
+            "data2": d2 if typ != "pc" else 0,
+        }
+    )
+
+
+def _fmt_b(b: bytes, off: int) -> dict | None:
+    """ch-1 bits0-1 @off bits5-6, bits2-3 @off+1 bits0-1; type 2bit at
+    off+1 bit6 / off+2 bit0; d1 plain @off+3; (d2<<1)&0x7F @off+4 with
+    bit0 of @off+5 = d2>>6."""
+    if not _any(b, off, 6):
+        return None
+    ch = (
+        ((b[off] >> 5) & 1)
+        | (((b[off] >> 6) & 1) << 1)
+        | ((b[off + 1] & 1) << 2)
+        | (((b[off + 1] >> 1) & 1) << 3)
+    ) + 1
+    typ = _BB_TYPE.get((((b[off + 1] >> 6) & 1) << 1) | (b[off + 2] & 1), "?")
+    d1 = b[off + 3]
+    d2 = ((b[off + 4] & 0x7F) | ((b[off + 5] & 1) << 7)) >> 1
+    return _clean(
+        {"channel": ch, "type": typ, "data1": d1, "data2": d2 if typ != "pc" else 0}
+    )
+
+
+def _fmt_c(b: bytes, off: int) -> dict | None:
+    """(ch-1)<<3; type0<<5|type1<<4; (d1&3)<<5; (d1>>2)|(d2&1)<<6; d2>>1."""
+    if not _any(b, off, 6):
+        return None
+    ch = (b[off] >> 3) + 1
+    typ = _TYPE_C.get(((b[off + 1] >> 5) & 1) | (((b[off + 1] >> 4) & 1) << 1), "?")
+    d1 = ((b[off + 2] >> 5) & 3) | ((b[off + 3] & 0x1F) << 2)
+    d2 = (b[off + 4] << 1) | ((b[off + 3] >> 6) & 1)
+    return _clean(
+        {"channel": ch, "type": typ, "data1": d1, "data2": d2 if typ != "pc" else 0}
+    )
+
+
+def _fmt_d(b: bytes, off: int) -> dict | None:
+    """Flag @off-1 = 0x01 (unmapped); (ch-1)<<1 @off; type<<2 @off+1
+    (inverted table); (d1&0xF)<<3 @off+2; @off+3 bits 0-2 = d1 bits
+    4-6 REVERSED + bits 4-6 = d2&7; @off+4 = 0x20|(d2>>3)."""
+    if not _any(b, off, 5):
+        return None
+    ch = (b[off] >> 1) + 1
+    typ = _TYPE_D.get(b[off + 1] >> 2, "?")
+    d1 = ((b[off + 2] >> 3) & 0x0F) | ((b[off + 3] & 7) << 4)
+    d2 = ((b[off + 4] & 0x0F) << 3) | ((b[off + 3] >> 4) & 7)
+    return _clean(
+        {"channel": ch, "type": typ, "data1": d1, "data2": d2 if typ != "pc" else 0}
+    )
+
+
+def _fmt_e(b: bytes, off: int) -> dict | None:
+    """ch-1 bit0 @off bit6 + (ch-1)>>1 @off+1; type (inverted) @off+2;
+    (d1<<1)&0x7F @off+3; ((d2&0x1F)<<2)|(d1>>6) @off+4;
+    0x08|((d2>>6)<<1)|(d2&0x20?1:0)... i.e. d2 bit5 -> @off+5 bit0,
+    d2 bit6 -> @off+5 bit1."""
+    if not _any(b, off, 6):
+        return None
+    ch = (((b[off] >> 6) & 1) | (b[off + 1] << 1)) + 1
+    typ = _TYPE_E.get(b[off + 2], "?")
+    d1 = (b[off + 3] >> 1) | ((b[off + 4] & 1) << 6)
+    d2 = (
+        ((b[off + 4] >> 2) & 0x1F)
+        | ((b[off + 5] & 1) << 5)
+        | (((b[off + 5] >> 1) & 1) << 6)
+    )
+    return _clean(
+        {"channel": ch, "type": typ, "data1": d1, "data2": d2 if typ != "pc" else 0}
+    )
+
+
+def _fmt_f(b: bytes, off: int) -> dict | None:
+    """(ch-1)&7<<4 @off; (ch-1>>3)|type<<5 @off+1 (inverted table, bit0
+    of the code at... code stored as LSB-first 2 bits @ bits 5-6);
+    (d1&1)<<6 @off+2; d1>>1 @off+3; d2 plain @off+4."""
+    if not _any(b, off, 5):
+        return None
+    ch = (((b[off] >> 4) & 7) | ((b[off + 1] & 1) << 3)) + 1
+    typ = _BB_TYPE_S5.get((b[off + 1] >> 5) & 3, "?")
+    d1 = ((b[off + 2] >> 6) & 1) | (b[off + 3] << 1)
+    d2 = b[off + 4]
+    return _clean(
+        {"channel": ch, "type": typ, "data1": d1, "data2": d2 if typ != "pc" else 0}
+    )
+
+
+def _fmt_g(b: bytes, off: int) -> dict | None:
+    """Slot 7: (ch-1)<<2; type: bit0<<4|bit1<<3; (d1&7)<<4;
+    @+3 = ((d2&7)<<5)&0x7F | (d1>>3); @+4 = 0x40|(d2>>2).
+    d1 = ((b&7)<<3 | (lo3)); d2 = ((@+4&0x1F)<<2) | (d2lo)."""
+    if not _any(b, off, 5):
+        return None
+    ch = (b[off] >> 2) + 1
+    typ = _BB_TYPE.get((((b[off + 1] >> 3) & 1) << 1) | ((b[off + 1] >> 4) & 1), "?")
+    d1 = ((b[off + 3] & 0x0F) << 3) | ((b[off + 2] >> 4) & 7)
+    d2 = ((b[off + 4] & 0x1F) << 2) | ((b[off + 3] >> 5) & 3)
+    return _clean(
+        {"channel": ch, "type": typ, "data1": d1, "data2": d2 if typ != "pc" else 0}
+    )
+
+
 def decode_b_slots(chunk: bytes) -> list[dict]:
     """Decode bank B slots from the 000000 chunk.
 
-    Slot 1 is fully decoded (@199-203, verified across 1-slot and
-    multi-slot banks, 23/25 captures exact; the 2 misses are stale
-    first-read-backs after a GUI change).
-
-    Slots 2+ use a continuously-interleaved bit-stream whose byte
-    alignment shifts with content (partial observations: d1 plain,
-    d2<<1, channel bits at @204<<5/@205 carry, type bits at
-    @205-bit6/@206-bit0) — NOT reliably decodable from fixed offsets
-    without the firmware algorithm.
+    All ten slot records are at FIXED offsets (raw-pinned + verified,
+    2026-09-06): 200, 205, 211, 217, 222, 228, 234, 240, 245, 251. Each
+    slot uses its own bit-packing, so the decoder dispatches per-record
+    format. Verified byte-exact (across the camp_* campaign captures):
+    slots 1-6 and 8-10. Slot 7's data1-high/data2 packing is still being
+    mapped (channel/type known). Empty slots (all-zero records) are
+    skipped.
     """
-    return [decode_slot1(chunk, "b")]
+    fmts = {
+        1: _fmt_a,
+        2: _fmt_b,
+        3: _fmt_c,
+        4: _fmt_d,
+        5: _fmt_e,
+        6: _fmt_f,
+        7: _fmt_g,
+        8: _fmt_a,
+        9: _fmt_b,
+        10: _fmt_c,
+    }
+    out = []
+    for i in range(1, 11):
+        msg = fmts[i](chunk, _BB_OFFS[i])
+        if msg:
+            out.append(msg)
+    return out
 
 
 # Bank A slot 2 (@113-119) and slot 3 (@120-124) decoders, from the 3-slot

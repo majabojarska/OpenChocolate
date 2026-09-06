@@ -344,13 +344,51 @@ slot a different internal encoding:
 | bank A slot 4 | @125–130 (5-slot) | @125 `(ch-1)<<5`, @126 `type|((ch-1)<<5>>7)`, @128 `d1` plain, @129 `(d2&0x3F)<<1`, @130 `((d2>>6)<<2)|1` — **fully decoded** |
 | bank A slot 5 | @130–135 (5-slot) | @131 `(ch-1)<<3`, @132 type (0x10 cc/0x20 noteon), @133 `(d1&3)<<5`, @134 `(d1>>2)|((d2&1)<<6)`, @135 `d2>>1` — **fully decoded** |
 | bank A slots 6-10 | @136+ (10-slot) | 5-byte records, each a different dense packing — **all decoded**: s6 @137 `(ch-1)<<1`/@138 type/@139 `(d1&7)<<3`/@140 `(d1>>4)|((d2&1)<<4)|((d2&4)<<4)`/@141 `(d2>>3)|0x20`; s7 @142 `(ch-9)<<6`/@144 type/@145 `(d1&0x3F)<<1`/@146 `(d2&0x1F)<<2`/@147 `(d2>>5)|8`; s8 @148 `(ch-1)<<4`/@149 type/@150 `(d1&1)<<6`/@151 `d1>>1`/@152 `d2>>3`/@153 `(d2&7)<<1`; s9 @153 `(ch-1)<<2`/@154 type/@155 `(d1&7)<<4`/@156 `(d1>>3)|(d2<<5)`; s10 @159 `ch-1`/@160 type/@161 `(d1&0x1F)<<2`/@162 `(d2&0x0F)<<3|(d1>>5)`/@163 `(d2>>4)|6` |
-| bank B slot 1 | ~@199–204 | @199 `ch−1`, @200 `type_index<<1` (0/2/4/6), @201 `(d1&0x1F)<<2`, @202 `(d2&0x0F)<<3 \| (d1>>5)`, @203 `0x10 \| (d2>>4)` — **fully decoded & verified across 1-slot and multi-slot banks** (23/25 captures exact; the 2 misses were stale first-read-backs) |
-| bank B slots 2+ | @204+ (multi-slot) | continuously-interleaved bit-stream; byte alignment shifts with content. Partial: d1 plain, `d2<<1`, channel bits @204<<5/@205 carry, type bits @205-bit6/@206-bit0. **Not reliable from fixed offsets without the firmware algorithm.** |
+| bank B slot 1 | @200–204 | @200 `ch−1`, @201 `type_index<<1` (0/2/4/6), @202 `(d1&0x1F)<<2`, @203 `(d2&0x0F)<<3 \| (d1>>5)`, @204 `0x10 \| (d2>>4)` (bit 4 optional in some read-backs) — **FULLY DECODED** (format A) |
+| bank B slot 2 | @205–210 | **FULLY DECODED** (format B): @205 bits 5-6 = `(ch-1)` bits 0-1; @206 bits 0-1 = `(ch-1)` bits 2-3; type = `(@206 bit6 << 1) \| (@207 bit0)` (0=pc 1=noteon 2=cc 3=noteoff); @208 `d1` plain; @209 `(d2<<1) & 0x7F`; @210 bit 0 = `d2 >> 6` |
+| bank B slot 3 | @211–215 | **FULLY DECODED** (format C): @211 `(ch-1)<<3`; @212 `(type bit0)<<5 \| (type bit1)<<4`; @213 `(d1&3)<<5`; @214 `(d1>>2) \| ((d2&1)<<6)`; @215 `d2>>1` |
+| bank B slot 4 | @217–221 (@216 = 0x01 flag) | **FULLY DECODED** (format D, type table INVERTED: 0=pc 1=cc 2=noteon 3=noteoff): @217 `(ch-1)<<1`; @218 `type<<2`; @219 `(d1&0xF)<<3`; @220 bits 0-2 = `(d1>>4)&7` + bits 4-6 = `d2&7`; @221 `0x20 \| (d2>>3)` |
+| bank B slot 5 | @222–227 | **FULLY DECODED** (format E, inverted type table): @222 bit 6 = `(ch-1)&1`, @223 `(ch-1)>>1`; @224 `type` (0=pc 1=cc 2=noteon 3=noteoff); @225 `(d1<<1)&0x7F`; @226 `((d2&0x1F)<<2) \| (d1>>6)`; @227 `0x08 \| (d2 bit5) \| ((d2 bit6)<<1)` |
+| bank B slot 6 | @228–232 | **FULLY DECODED** (format F, inverted type table): @228 `(ch-1&7)<<4`; @229 bit 0 = `(ch-1)>>3`, bits 5-6 = type (LSB-first); @230 `(d1&1)<<6`; @231 `d1>>1`; @232 `d2` plain |
+| bank B slot 7 | @234–238 (@233 = 0x02 flag) | **FULLY DECODED** (format G, standard type table): @234 `(ch-1)<<2`; @235 `(type bit0)<<4 \| (type bit1)<<3`; @236 `(d1&7)<<4`; @237 `((d2&7)<<5)&0x7F \| (d1>>3)`; @238 `0x40 \| (d2>>2)` |
+| bank B slot 8 | @240–244 | **FULLY DECODED** — same layout as slot 1 (format A) |
+| bank B slot 9 | @245–250 | **FULLY DECODED** — same layout as slot 2 (format B) |
+| bank B slot 10 | @251–255 | **FULLY DECODED** — same layout as slot 3 (format C) |
 
-**IMPORTANT — bank B multi-slot is NON-CONTIGUOUS:** with 3 slots, bank B's
-slot 1 sits at ~@200 but slots 2+ live at ~@676+ (footswitch-B region) with
-a dense bit-packed re-encoding (changing slot-2 data2 64→65 rewrote a
-5-byte block @682-686). The 1-slot offsets do NOT generalize to multi-slot.
+> **BANK B FULLY SOLVED (2026-09-06):** all 10 bank B slots decode
+> byte-exact. Record starts: 200, 205, 211, 217, 222, 228, 234, 240,
+> 245, 251 (fixed offsets; each record has its own packing, formats A-G,
+> with A/B/C repeating for slots 8/9/10). Verified: 8 known-state
+> captures + 16 field-sweep captures (160 slots) + **10 freshly-filled
+> random 10-slot banks (double-bank footswitch mode, seed 42) = 100/100
+> slots byte-exact**. `trace.decode_b_slots()` implements all formats;
+> `read-bank-exact b` decodes the live device (e.g. the current random
+> bank reads back exactly). Empty slots (all-zero records) are skipped;
+> an all-zero record is indistinguishable from a real ch1/pc/d1=0 slot.
+> Unmapped constants: @197/@198 (0x00/0x40 marker bytes), @216 = 0x01
+> and @233 = 0x02 (slot flags), @227 bit 3 = 0x08 (slot-5 flag).
+
+> **⚠ PARSER BUG DISCOVERED (2026-09-06) — invalidates the earlier
+> "bit-stream / shifts with content" conclusions.** All the offline analysis
+> tools filtered out any payload byte valued `0x16` (a leftover "strip port
+> id 16" hack) from the aseqdump hex. Since `0x16` is a legit MIDI byte
+> (e.g. data1 = 22), every config containing one parsed SHORTER, silently
+> shifting every subsequent byte and producing the phantom "byte alignment
+> shifts with content" and "d1 vanished" effects. The device read-back is a
+> FIXED 1155-byte chunk with FIXED offsets. Fixed in `analyze_captures.py`
+> and every scratch tool; `read_bank_exact` never had the bug (it strips the
+> port column, not byte values) so its `@199` bank-B decode was off by +1
+> (it saw a truthful chunk) — corrected to `@200-204`.
+>
+> **Bank B slot 1/2 offsets above are RAW-PINNED** (located the literal
+> `02 02 2c 08 12` and `16 58` byte runs in the raw SysEx) and verified
+> byte-exact on the fixed parser: `trace.decode_b_slots()` decodes all 10
+> slots (formats A-G above), `read-bank-exact b` prints them live.
+>
+> **Bank A slots 8-10 remain to be re-derived**: the spec rows above for
+> s8-s10 were fit to buggy-shifted bytes (e.g. true s8 = @148-152 with d2
+> PLAIN, not `d2>>3`+`(d2&7)<<1`). Slots 1-7 are unaffected (no matter where
+> the `0x16`s were, the true parse never shifts) and still decode exactly.
 
 **OCR flakiness confirmed (2026-09-06):** `read-bank` OCR misread bank B
 slot 1 data2 88→38, slot 2 data1 19→13, and missed slot 3 entirely — the

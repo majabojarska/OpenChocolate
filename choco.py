@@ -503,19 +503,33 @@ def _dialog_click(widget: str, action: str, clicks: int = 1) -> str | None:
 
 
 def _clear_and_type(value: int) -> None:
-    """Clear a text field (BackSpace xN) and type a number."""
+    """Clear a text field (BackSpace xN) and type a number.
+
+    Wine drops keystrokes when typing right after the click lands, so wait
+    for focus to settle and use a generous inter-key delay (a too-fast
+    `type` reliably lost the second digit of e.g. "22" -> "2").
+    """
+    time.sleep(0.3)
     _run(["xdotool", "key", "--repeat", str(CLEAR_KEYPRESSES), "BackSpace"])
-    _run(["xdotool", "type", "--delay", "80", str(value)])
+    time.sleep(0.1)
+    _run(["xdotool", "type", "--delay", "150", str(value)])
 
 
 def open_edit(event_index: int = 0, bank: str = "a") -> int:
-    """Click the Edit button of a mapped event (default: the first one)."""
+    """Click the Edit button of a mapped event (default: the first one).
+
+    If a midi_edit dialog is already open (top of stack), close it first
+    so the edit button of FootCtrlPlus is reachable again.
+    """
     if not 0 <= event_index < len(EVENT_EDIT_BUTTONS):
         print(
             "open-edit: only event 1 (index 0) is defined so far",
             file=sys.stderr,
         )
         return 1
+    if top_of_stack(open_windows()) == "midi_edit":
+        edit_confirm()
+        time.sleep(0.4)
     wid = require("open_edit")
     if wid is None:
         return 1
@@ -1086,15 +1100,28 @@ def read_bank_exact(bank: str = "a") -> list[dict] | None:
                 time.sleep(0.1)
             time.sleep(6)
 
-        # rebuild chunk 000000 from the pedal's 0D 49 responses
+        # rebuild chunk 000000 from the pedal's 0D 49 responses; the
+        # pedal port id is dynamic (e.g. 16:0, 28:0), so read it from the
+        # capture header (`# port: <id> <client>`) instead of hardcoding.
         lines = open(log_path).read().splitlines()
+        pedal_port: str | None = None
+        for ln in lines:
+            m = _re.match(r"# port: (\d+:\d+) (\S+)", ln)
+            if m and m.group(2).upper() == "SINCO":
+                pedal_port = m.group(1)
+                break
+            if m and pedal_port is None:
+                pedal_port = m.group(1)
+        prefix = _re.compile(rf"^\s*{_re.escape(pedal_port or '')}\s+")
         cur: list[int] = []
         pedal: list[bytes] = []
         for ln in lines:
-            if "System exclusive" not in ln or not _re.search(r"^\s*16:0", ln):
+            if "System exclusive" not in ln or not prefix.match(ln):
                 continue
-            toks = _re.findall(r"\b[0-9A-Fa-f]{2}\b", ln)
-            toks = [t for t in toks if t.upper() != "16"]
+            # strip the `28:0` source column so the port id can't leak into
+            # the hex byte stream
+            body = prefix.sub("", ln)
+            toks = _re.findall(r"\b[0-9A-Fa-f]{2}\b", body)
             if not toks:
                 continue
             if cur and toks[0].upper() == "F0":
@@ -1114,15 +1141,24 @@ def read_bank_exact(bank: str = "a") -> list[dict] | None:
                 p = b[12:-1]
                 if p[:5] == bytes([0, 0x10, 0x7E, 0, 0]):
                     p = p[5:]
-                from trace import decode_slot1
+                if bank == "b":
+                    from trace import decode_b_slots
 
-                msg = decode_slot1(p, bank)
-                print(
-                    f"bank {bank.upper()} slot 1 (exact): "
-                    f"ch{msg['channel']} {msg['type']} "
-                    f"{msg['data1']} {msg['data2']}"
-                )
-                return [msg]
+                    msgs = decode_b_slots(p)
+                else:
+                    # Bank A slots 1-7 layouts are intact, but slots 8-10
+                    # were derived from buggy-shifted reads and need
+                    # re-basing on the fixed parser; decode slot 1 only.
+                    from trace import decode_slot1
+
+                    msgs = [decode_slot1(p, "a")]
+                for i, msg in enumerate(msgs):
+                    print(
+                        f"bank {bank.upper()} slot {i + 1} (exact): "
+                        f"ch{msg['channel']} {msg['type']} "
+                        f"{msg['data1']} {msg['data2']}"
+                    )
+                return msgs
         print("read_bank_exact: no 000000 chunk in capture", file=sys.stderr)
         return None
     finally:

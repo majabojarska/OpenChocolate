@@ -2,6 +2,123 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Bank B multi-slot mapping SOLVED: all 10 slots byte-exact (2026-09-06)
+
+### Bank B fully decoded — formats A-G, fixed offsets
+
+Record starts within the 000000 chunk (raw-pinned + diff-mapped):
+`200, 205, 211, 217, 222, 228, 234, 240, 245, 251`. Each slot has its
+own bit-packing; formats A/B/C repeat for slots 8/9/10 (`s1=s8`, `s2=s9`,
+`s3=s10`):
+
+- **A (s1, s8)**: `ch-1` plain; `type<<1` (0/2/4/6); `(d1&0x1F)<<2`;
+  `((d2&0xF)<<3)|(d1>>5)`; `0x10|(d2>>4)`.
+- **B (s2, s9)**: ch-1 bits 0-1 @+0 bits 5-6, bits 2-3 @+1 bits 0-1;
+  type 2-bit @+1 bit6 / +2 bit0; d1 plain @+3; `(d2<<1)&0x7F` @+4 +
+  carry bit @+5 bit0.
+- **C (s3, s10)**: `(ch-1)<<3`; type bits @+1 (bit0<<5|bit1<<4);
+  `(d1&3)<<5`; `(d1>>2)|((d2&1)<<6)`; `d2>>1`.
+- **D (s4)**: 0x01 flag @216; `(ch-1)<<1`; type<<2 (INVERTED table:
+  0=pc 1=cc 2=noteon 3=noteoff); `(d1&0xF)<<3`; d1 bits 4-6 @+3 bits
+  0-2 + d2&7 @+3 bits 4-6; `0x20|(d2>>3)`.
+- **E (s5)**: ch-1 bit0 @+0 bit6 + `(ch-1)>>1` @+1; type @+2 (inverted
+  table); `(d1<<1)&0x7F`; `((d2&0x1F)<<2)|(d1>>6)`; `0x08|d2 bit5|
+  ((d2 bit6)<<1)`.
+- **F (s6)**: `(ch-1&7)<<4`; `(ch-1>>3)` + type (inverted, bits 5-6)
+  @+1; `(d1&1)<<6`; `d1>>1`; **d2 plain**.
+- **G (s7)**: 0x02 flag @233; `(ch-1)<<2`; type bit0<<4|bit1<<3;
+  `(d1&7)<<4`; `((d2&7)<<5)&0x7F | (d1>>3)`; `0x40|(d2>>2)`.
+
+### Verification (rigorous)
+
+- 8 known-state captures (0-2, 3-6, 8, 10 slots): exact.
+- 16 field-sweep captures (each of slots 3-10 with d2+3/d2+15/d1+3/
+  d1hi/ch+1/type changes on a fixed 10-slot baseline): 160/160 slots
+  exact.
+- **10 freshly-filled RANDOM 10-slot banks (seed 42, double-bank mode):
+  100/100 slots byte-exact** — the task's verification criterion.
+- Live: `read-bank-exact b` returns the current device's random bank
+  exactly (ch9 cc 17 120 … ch2 noteon 12 82).
+
+### Notable gaps the random banks caught
+
+- s4 type table is INVERTED (cc=1, noteon=2) — sweep samples (pc/off)
+  were table-invariant, only full-range random values revealed it.
+- s4 d1: `(d1&0xF)<<3` low nibble + d1 bits 4-6 at @+3 bits 0-2
+  (earlier `(d1<<3)&0xFF` formula failed for d1 >= 32).
+- s5 d2 bit 5 lives at @+5 bit 0 (were only storing 6 bits).
+- `camp2.py` gained a footctrlplus reopen guard; `_clear_and_type`
+  already fixed (150ms key delay) for reliable multi-digit fills.
+
+### Still open (next task, see TODO)
+
+- Bank A slots 8-10 re-basing (spec rows were fit to buggy-shifted
+  bytes; bank A slots 1-7 are fine). Once done, `read-bank-exact a`
+  returns all 10 bank A slots too.
+
+---
+
+## Task — Map `0D` read-back — parser bug found; bank B slots 1-2 live-verified (2026-09-06)
+
+### The big unlock: the "bit-stream / alignment shifts" was a PARSER BUG
+
+Every offline aseqdump parser (`analyze_captures.py` and the scratch
+tools) filtered `toks if t.upper() != "16"` — a leftover "strip port id
+16" hack — **removing every payload byte valued `0x16`** (e.g. data1=22)
+from the reconstructed SysEx. Effect: chunks parsed shorter by the count
+of `0x16`s, so every byte after one shifted left, looking exactly like
+"a continuously interleaved bit-stream whose byte alignment shifts with
+content" (the task's premise). The device read-back is actually a FIXED
+1155-byte chunk with FIXED offsets.
+
+- Confirmed via `find_byte.py`: the raw line for a 2-slot bank contained
+  `... 41 00 16 58 ...` (d1=22 present!); the parser output was missing
+  it. The `read_bank_exact` path in choco.py never had the bug (it
+  strips the port column, not byte values).
+- Fixed everywhere; `camp_v2_cc5` went from `@207=0x58` (garbage) to
+  `@207=0x16 @208=0x58` (perfect decode).
+
+### Bank B slot 1 — corrected to @200-204 (raw-pinned), decoder verified
+
+- TRUE offsets @200-204 (NOT @199-203 as the spec had): @200 `ch-1`,
+  @201 `type_index<<1` (0/2/4/6), @202 `(d1&0x1F)<<2`,
+  @203 `(d2&0x0F)<<3|(d1>>5)`, @204 `0x10|(d2>>4)`. Raw-pinned by
+  locating the literal `02 02 2c 08 12` run in the raw SysEx.
+- `trace.decode_slot1(chunk, "b")` updated; d2 formula uses
+  `@204 & 0x0F` (the `0x10` marker bit is optional in some read-backs).
+
+### Bank B slot 2 — FULLY decoded @205-210 (byte-exact, 11 captures + live)
+
+- @205 bits 5-6 = `(ch-1)` bits 0-1 (LSB-first); @206 bits 0-1 =
+  `(ch-1)` bits 2-3; type = `(@206 bit6 << 1) | (@207 bit0)`
+  (0=pc 1=noteon 2=cc 3=noteoff); @208 = d1 plain; @209 =
+  `(d2<<1) & 0x7F`; @210 bit 0 = `d2 >> 6`.
+- Raw-pinned via the `16 58` byte pair; `trace.decode_b_slots()` + new
+  `decode_b_slot2_2slot()` implement it; verified 10/11 captures exact
+  (the 1 miss was a raced fill) + live: `read-bank-exact b` prints
+  `ch3 cc 11 33 / ch5 cc 22 44` for the current device state.
+
+### Harness fixes
+
+- `read_bank_exact`: pedal port id now read from the capture header
+  (was hardcoded 16:0; the pedal is on 28:0 today), port column
+  stripped so the id can't leak into the hex stream; now prints all
+  decoded slots (bank B: 1-2; bank A: slot 1 only until s8-10 are
+  re-based).
+- `_clear_and_type`: +0.3s settle after the click and 150ms key delay
+  (Wine was dropping the 2nd digit — "22" became "2").
+- `camp2.py`/`campaign.py`/batch fill harnesses for repeatable
+  set->read-back workflows; captures archived in `captures/09_06/`.
+
+### Remaining (next task, see TODO)
+
+- Bank B slots 3-10 records at TRUE offsets (mechanical now: the
+  3-10-slot captures exist; re-run single-field diffs with the fixed
+  parser).
+- Bank A slots 8-10 re-basing: spec rows for s8-s10 were fit to
+  buggy-shifted bytes (true s8 = @148-152, d2 PLAIN). s1-7 unaffected.
+- Spec §4.4 updated with the correction note.
+
 ## Task — Bank B multi-slot mapping (2026-09-06, night checkpoint)
 
 - **Bank B slot 1 fully decoded & verified** (true 1-slot and 2-slot
