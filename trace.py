@@ -378,6 +378,16 @@ _B2_TYPE = {0x08: "cc", 0x10: "noteon"}
 _B3_TYPE = {0: "pc", 2: "cc", 4: "noteon", 6: "noteoff"}
 
 
+# Bank A type table (idx stored << per-slot shift): 0=pc 1=cc 2=noteon
+# 3=noteoff.
+_BA_TYPE = {0: "pc", 1: "cc", 2: "noteon", 3: "noteoff"}
+
+
+def _b2(c: bytes, idx: int, bit: int) -> int:
+    """Bit (bit) of byte idx of record c (LSB-first index = idx*8+bit)."""
+    return (c[idx] >> bit) & 1
+
+
 def decode_bank_a_slots(chunk: bytes) -> list[dict]:
     """Decode bank A slots 1-3 from the 000000 chunk (3-slot layout).
 
@@ -407,7 +417,9 @@ def decode_bank_a_slots(chunk: bytes) -> list[dict]:
             "channel": (((chunk[125] & 0x7F) >> 5) | ((chunk[126] & 1) << 2)) + 1,
             "type": {0x00: "pc", 0x40: "cc"}.get(chunk[126] & 0xFE, "?"),
             "data1": chunk[128],
-            "data2": (chunk[129] >> 1) | ((chunk[130] >> 2) << 6),
+            "data2": (chunk[129] >> 1) | ((chunk[130] >> 2) << 6)
+            if (chunk[126] & 0xFE) != 0x00
+            else 0,
         }
     )
     out.append(
@@ -441,36 +453,50 @@ def decode_bank_a_slots(chunk: bytes) -> list[dict]:
             "data2": (chunk[146] >> 2) | ((chunk[147] & 0x07) << 5),
         }
     )
-    # slot 8 (10-slot layout): @148 (ch-1)<<4, @149 type (0x60 noteoff/
-    # 0x20 cc), @150 (d1&1)<<6, @151 d1>>1, @152 d2>>3, @153 (d2&7)<<1
-    out.append(
-        {
-            "channel": (chunk[148] >> 4) + 1,
-            "type": {0x60: "noteoff", 0x20: "cc"}.get(chunk[149], "?"),
-            "data1": (chunk[151] << 1) | (chunk[150] >> 6),
-            "data2": (chunk[152] << 3) | (chunk[153] >> 1),
-        }
-    )
-    # slot 9 (10-slot layout): @153 (ch-1)<<2, @154 type (0x00 pc/0x08
-    # cc), @155 (d1&7)<<4, @156 (d1>>3)|(d2<<5)
-    out.append(
-        {
-            "channel": (chunk[153] >> 2) + 1,
-            "type": {0x00: "pc", 0x08: "cc"}.get(chunk[154], "?"),
-            "data1": (chunk[155] >> 4) | ((chunk[156] & 0x1F) << 3),
-            "data2": chunk[156] >> 5,
-        }
-    )
-    # slot 10 (10-slot layout): @159 ch-1, @160 type (0x02 cc/0x04 noteon),
-    # @161 (d1&0x1F)<<2, @162 (d2&0x0F)<<3 | (d1>>5), @163 (d2>>4)|6
-    out.append(
-        {
-            "channel": chunk[159] + 1,
-            "type": {0x02: "cc", 0x04: "noteon"}.get(chunk[160], "?"),
-            "data1": (chunk[161] >> 2) | ((chunk[162] & 0x07) << 5),
-            "data2": ((chunk[163] & 0x07) << 4) | ((chunk[162] >> 3) & 0x0F),
-        }
-    )
+    # slots 8-10 (10-slot layout) — verified on the a8/a9/a10 sweeps +
+    # a10 d2 sweep:
+    #   s8 @148-152: (ch-1)<<4, type_idx<<5, (d1&1)<<6, d1>>1, d2 plain
+    if not any(chunk[148:153]):
+        pass
+    else:
+        out.append(
+            {
+                "channel": (chunk[148] >> 4) + 1,
+                "type": _BA_TYPE.get(chunk[149] >> 5, "?"),
+                "data1": (chunk[151] << 1) | (chunk[150] >> 6),
+                "data2": chunk[152] if (chunk[149] >> 5) else 0,
+            }
+        )
+    #   s9 @154-158: (ch-1)<<2, type_idx<<3, (d1&7)<<4,
+    #     (d1>>3)|((d2&3)<<5), 0x40|(d2>>2)
+    if not any(chunk[154:159]):
+        pass
+    else:
+        out.append(
+            {
+                "channel": (chunk[154] >> 2) + 1,
+                "type": _BA_TYPE.get(chunk[155] >> 3, "?"),
+                "data1": (chunk[156] >> 4) | ((chunk[157] & 0x1F) << 3),
+                "data2": ((chunk[158] - 0x40) << 2) | (chunk[157] >> 5)
+                if (chunk[155] >> 3)
+                else 0,
+            }
+        )
+    #   s10 @160-164: ch-1, type_idx<<1, (d1&0x1F)<<2,
+    #     ((d2&0xF)<<3)|(d1>>5), d2>>4
+    if not any(chunk[160:165]):
+        pass
+    else:
+        out.append(
+            {
+                "channel": chunk[160] + 1,
+                "type": _BA_TYPE.get(chunk[161] >> 1, "?"),
+                "data1": (chunk[162] >> 2) | ((chunk[163] & 0x07) << 5),
+                "data2": ((chunk[163] >> 3) & 0x0F) | (chunk[164] << 4)
+                if (chunk[161] >> 1)
+                else 0,
+            }
+        )
     return out
 
 

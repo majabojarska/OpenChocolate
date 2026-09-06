@@ -2,6 +2,69 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Checksum SOLVED for small families; direct amidi control; bank A 8-10 re-derived at true offsets (2026-09-06)
+
+### Direct SysEx control without the GUI — WORKS
+
+- `amidi -p hw:3,0,0` reaches the pedal once the Wine app is closed
+  (the app holds the raw device while running).
+- The full init **read** sweep works from `amidi` (23/24 `0D 49`
+  responses; the 24th answers a `0D 79` variant — harmless).
+- Verbatim replay of the app's 13 config-page writes sets device state
+  (12-13/13 ACKs). **Arbitrary page writes blocked by the unknown
+  page checksum** (see TODO).
+
+### Checksum: SOLVED for `01 08`/`09 49` small families
+
+- 14-bit little-endian complement sum: `X = K - sum(bytes after F0 ..
+  before chk) (mod 2^14)`, sent as `(X&0x7F, (X>>7)&0x7F)`.
+- K: ACK `0x13A`; config `0x28A` (selectors 0x00/0x01/0x06/0x08/0x0A/
+  0x0C/0x5D/0x40 + fs D), `0x18B` (0x1F), `0x38B` (0x7E), `0x20B`
+  (0x57/0x5A). Verified 5224/5224 ACK, 1930/1935 config (the 5 were
+  the old wrong fs-D constant). Spec §5 updated.
+- The `09 41 40` page checksum is a DIFFERENT, non-linear algorithm:
+  exhaustive standard-CRC (all polys × init × reflect × domains =
+  786k tasks, 12-core) + hash families + sum models all failed. All
+  payload bytes are checksum-covered (mutations NAKed). Unresolved.
+
+### Bank A slots 8-10 re-derived at true offsets (fixed parser)
+
+- s8 @148-152 (same packing as s6 family): `(ch-1)<<4`, `type<<5`,
+  `(d1&1)<<6`, `d1>>1`, `d2` plain.
+- s9 @154-158: `(ch-1)<<2`, `type<<3`, `(d1&7)<<4`, `(d1>>3)|((d2&3)<<5)`,
+  `0x40|(d2>>2)`.
+- s10 @160-164: bank-B-A-format (no 0x10 marker): `ch-1`, `type<<1`,
+  `(d1&0x1F)<<2`, `((d2&0xF)<<3)|(d1>>5)`, `d2>>4`.
+- Verified 20/20 sweep captures (a8/a9/a10 + d2 sweeps). Left old
+  (buggy-shifted) rows for s2-7 in the spec, flagged as in progress.
+
+### Bank A slots 2-7 — investigation results, NOT yet committed to the decoder
+
+- Slots 2-7 are **bit-scattered** packings (each field = a scattered set
+  of LSB-first bits over a 5-6 byte record), unlike bank B's simpler
+  layout. An exhaustive per-bit solver (`pick_bits.py`) found combos
+  that fit all 61 b-sweep samples for s2 (ch/type/d1/d2) and partially
+  for s3/s4 (d1), but d2/d1 HIGH bits were under-constrained (the sweep
+  values never varied them) and the fitted code regressed the base
+  decode, so **it was reverted** to the previous verified base-validated
+  (range-limited) formulas.
+- Open task (see TODO): value-spread sweeps (d1/d2 across 1..127 for
+  s3-7, ch=16) → `pick_bits.py` → update the decoder → `verify_a2.py`.
+  Evidence captures already on disk: `camp_a_hi57` (s5-7 at 127),
+  `camp_a6d2v1/2` (s6 d2 1,2), full planned sweep list in TODO.
+
+### Tooling changes
+
+- `camp2.py` gained a bank arg (`camp2.py a <name> <specs...>`);
+  `rand_verify.py` likewise (`rand_verify.py a <seed>`).
+- Analysis tools (kept): `analyze_captures.py` (fixed parser),
+  `verify_a.py`/`verify_a2.py`/`verify_b.py`/`verify_sweeps.py`
+  (regression), `pick_bits.py` (bit-combo fitter for bank A 2-7),
+  `verify_hypothesis.py` (checksum verifier), `diff_chunks.py`. Scratch
+  CRC/sum tools were removed (they failed).
+
+---
+
 ## Task — Bank B multi-slot mapping SOLVED: all 10 slots byte-exact (2026-09-06)
 
 ### Bank B fully decoded — formats A-G, fixed offsets

@@ -87,6 +87,10 @@ with record("SINCO", "WINE midi driver", log_file="{path}", tee=False, rescan_af
 
 
 def main() -> None:
+    bank = "b"
+    if len(sys.argv) > 1 and sys.argv[1] in ("a", "b"):
+        bank = sys.argv[1]
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
     name = sys.argv[1]
     specs = sys.argv[2:]
     msgs = []
@@ -96,8 +100,8 @@ def main() -> None:
         ch, d1 = int(parts[1]), int(parts[2])
         d2 = int(parts[3]) if len(parts) > 3 else 0
         msgs.append((mt, ch, d1, d2))
-    print(f"filling bank B: {msgs}")
-    if not fill("b", msgs):
+    print(f"filling bank {bank.upper()}: {msgs}")
+    if not fill(bank, msgs):
         print("fill failed", file=sys.stderr)
         sys.exit(1)
     print("capturing ...")

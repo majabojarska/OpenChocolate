@@ -31,15 +31,19 @@ def gen_bank(rng: random.Random) -> list[tuple]:
 
 
 def main() -> None:
+    bank = "b"
+    if len(sys.argv) > 1 and sys.argv[1] in ("a", "b"):
+        bank = sys.argv[1]
+        del sys.argv[1]
     seed = int(sys.argv[1]) if len(sys.argv) > 1 else 1
     rng = random.Random(seed)
     ok = 0
     for n in range(10):
-        bank = gen_bank(rng)
-        name = f"rand_{seed}_{n}"
-        args = [spec(*m) for m in bank]
+        bank_msgs = gen_bank(rng)
+        name = f"rand_{bank}_{seed}_{n}"
+        args = [spec(*m) for m in bank_msgs]
         r = subprocess.run(
-            ["python3", "camp2.py", name, *args],
+            ["python3", "camp2.py", bank, name, *args],
             capture_output=True,
             text=True,
             check=False,
@@ -70,9 +74,14 @@ def main() -> None:
                 chunk = q
         exp = [
             {"channel": ch, "type": t, "data1": d1, "data2": d2}
-            for t, ch, d1, d2 in bank
+            for t, ch, d1, d2 in bank_msgs
         ]
-        got = decode_b_slots(chunk)
+        if bank == "b":
+            got = decode_b_slots(chunk)
+        else:
+            from trace import decode_bank_a_slots
+
+            got = decode_bank_a_slots(chunk)
         if got == exp:
             ok += 1
             print(f"rand {n}: EXACT ({len(got)} slots)")
@@ -81,7 +90,7 @@ def main() -> None:
                 g = got[i] if i < len(got) else None
                 if g != e:
                     print(f"   slot{i + 1}: exp={e} got={g}")
-    print(f"\n{ok}/10 random banks byte-exact")
+    print(f"\n{ok}/10 random {bank.upper()} banks byte-exact")
 
 
 if __name__ == "__main__":

@@ -339,11 +339,31 @@ slot a different internal encoding:
 | record | location | mapped fields |
 |---|---|---|
 | bank A slot 1 | @108–112 | complete (§4.3 above) |
-| bank A slot 2 | @113–119 | @114 ch `(ch−1)<<2`, @115 type (0x08 cc / 0x10 noteon), @116 `(d1&7)<<4`, @117 `((d2&3)<<5)|(d1>>3)`, @118 `0x40+(d2>>2)` |
-| bank A slot 3 | @119–125 | @120 `ch−1`, @121 `type_index<<1`, @122 `(d1&0x1F)<<2`, @123 `((d2&0x1F)<<3)|(d1>>5)`, @124 `(d2>>5)` high bits — **fully decoded** (verified noteoff ch8/55/77, cc ch5/70/110) |
-| bank A slot 4 | @125–130 (5-slot) | @125 `(ch-1)<<5`, @126 `type|((ch-1)<<5>>7)`, @128 `d1` plain, @129 `(d2&0x3F)<<1`, @130 `((d2>>6)<<2)|1` — **fully decoded** |
-| bank A slot 5 | @130–135 (5-slot) | @131 `(ch-1)<<3`, @132 type (0x10 cc/0x20 noteon), @133 `(d1&3)<<5`, @134 `(d1>>2)|((d2&1)<<6)`, @135 `d2>>1` — **fully decoded** |
-| bank A slots 6-10 | @136+ (10-slot) | 5-byte records, each a different dense packing — **all decoded**: s6 @137 `(ch-1)<<1`/@138 type/@139 `(d1&7)<<3`/@140 `(d1>>4)|((d2&1)<<4)|((d2&4)<<4)`/@141 `(d2>>3)|0x20`; s7 @142 `(ch-9)<<6`/@144 type/@145 `(d1&0x3F)<<1`/@146 `(d2&0x1F)<<2`/@147 `(d2>>5)|8`; s8 @148 `(ch-1)<<4`/@149 type/@150 `(d1&1)<<6`/@151 `d1>>1`/@152 `d2>>3`/@153 `(d2&7)<<1`; s9 @153 `(ch-1)<<2`/@154 type/@155 `(d1&7)<<4`/@156 `(d1>>3)|(d2<<5)`; s10 @159 `ch-1`/@160 type/@161 `(d1&0x1F)<<2`/@162 `(d2&0x0F)<<3|(d1>>5)`/@163 `(d2>>4)|6` |
+
+> **⚠ BANK A SLOTS 2-10 STATUS (2026-09-06):** the original rows below
+> were fit to the buggy-shifted parser (see the 0x16 note) — they are
+> RANGE-VERIFIED ONLY (they decode the original 3/5/10-slot captures,
+> which happen not to contain 0x16 bytes before these records). Slots
+> 8-10 were re-derived on the fixed parser and are **fully verified**
+> (20/20 sweep captures, byte-exact). Slots 2-7 are **NOT yet re-derived**:
+> an exhaustive per-bit solver (`pick_bits.py`) fit all 61 b-sweep
+> samples for s2 (and partly s3/s4), but the d1/d2 high bits were
+> under-constrained by the sweep values, and the fitted code regressed
+> the base decode, so it was **reverted** to the (range-limited) rows
+> below. Next: value-spread sweeps (d1/d2 across 1..127 for s3-7, ch=16),
+> then re-fit + verify. Draft evidence captures on disk:
+> `captures/09_06/camp_a_hi57.log` (s5-7 at 127), `camp_a6d2v{1,2}.log`
+> (s6 d2=1,2).
+
+| bank A slot 2 | @113–119 | RANGE-VERIFIED (original): @114 `(ch−1)<<2`, @115 type (0x08 cc/0x10 noteon), @116 `(d1&7)<<4`, @117 `((d2&3)<<5)|(d1>>3)`, @118 `0x40+(d2>>2)` |
+| bank A slot 3 | @119–125 | RANGE-VERIFIED (original): @120 `ch−1`, @121 `type_index<<1`, @122 `(d1&0x1F)<<2`, @123 `((d2&0x1F)<<3)|(d1>>5)`, @124 `(d2>>5)` high bits |
+| bank A slot 4 | @125–130 | RANGE-VERIFIED (original): @125 `(ch-1)<<5`, @126 `type|((ch-1)>>3)`, @127 type (pc=00/cc=40), @128 d1 plain, @129 `(d2&0x3F)<<1`, @130 `((d2>>6)<<2)|1` (pc d2 forced 0) |
+| bank A slot 5 | @130–135 | RANGE-VERIFIED (original): @131 `(ch-1)<<3`, @132 type (0x10 cc/0x20 noteon), @133 `(d1&3)<<5`, @134 `(d1>>2)|((d2&1)<<6)`, @135 `d2>>1` |
+| bank A slot 6 | @136–141 | RANGE-VERIFIED (original): @137 `(ch-1)<<1`, @138 type (0x04 cc/0x08 noteon), @139 `(d1&7)<<3`, @140 `(d1>>4)|((d2&1)<<4)|((d2&4)<<4)`, @141 `(d2>>3)|0x20` |
+| bank A slot 7 | @142–147 | RANGE-VERIFIED (original): @142 `(ch-9)<<6`, @144 type (0x01 cc/0x02 noteon), @145 `(d1&0x3F)<<1`, @146 `(d2&0x1F)<<2`, @147 `(d2>>5)|0x08` |
+| bank A slot 8 | @148–152 | **FULLY DECODED** (2026-09-06): (ch-1)<<4, type_idx<<5 (0/32/64/96), (d1&1)<<6, d1>>1, d2 plain — verified on the a8 sweep (6 variants) |
+| bank A slot 9 | @154–158 | **FULLY DECODED** (2026-09-06): (ch-1)<<2, type_idx<<3, (d1&7)<<4, (d1>>3)|((d2&3)<<5), 0x40|(d2>>2) — verified on the a9 sweep |
+| bank A slot 10 | @160–164 | **FULLY DECODED** (2026-09-06): ch-1, type_idx<<1, (d1&0x1F)<<2, ((d2&0xF)<<3)|(d1>>5), d2>>4 — verified on a10 sweep + d2 sweep (no 0x10 marker bit) |
 | bank B slot 1 | @200–204 | @200 `ch−1`, @201 `type_index<<1` (0/2/4/6), @202 `(d1&0x1F)<<2`, @203 `(d2&0x0F)<<3 \| (d1>>5)`, @204 `0x10 \| (d2>>4)` (bit 4 optional in some read-backs) — **FULLY DECODED** (format A) |
 | bank B slot 2 | @205–210 | **FULLY DECODED** (format B): @205 bits 5-6 = `(ch-1)` bits 0-1; @206 bits 0-1 = `(ch-1)` bits 2-3; type = `(@206 bit6 << 1) \| (@207 bit0)` (0=pc 1=noteon 2=cc 3=noteoff); @208 `d1` plain; @209 `(d2<<1) & 0x7F`; @210 bit 0 = `d2 >> 6` |
 | bank B slot 3 | @211–215 | **FULLY DECODED** (format C): @211 `(ch-1)<<3`; @212 `(type bit0)<<5 \| (type bit1)<<4`; @213 `(d1&3)<<5`; @214 `(d1>>2) \| ((d2&1)<<6)`; @215 `d2>>1` |
@@ -403,14 +423,52 @@ region with its own record layout; same diff technique applies per region.
 
 ## 5. Checksum
 
-- Two bytes before `F7` (`CHK1 CHK2`) vary per chunk **and** per session with
-  identical UI actions — i.e. data-dependent, not a counter.
-- Identical payload → identical checksum (the `write(02)` for "add one event"
-  and the `erase` are byte-identical every time, including their checksum),
-  so it is a deterministic function of the payload.
-- Observed (chunk `off=0x00`, different contents): `6C 01`, `68 01`, `64 01`,
-  `60 01`, `5C 01`, `30 01` … — low byte tracks payload, high byte mostly
-  fixed per content set. Algorithm **unknown** (see §6.2).
+### SOLVED — 14-bit complement sum for the small SysEx families (2026-09-06)
+
+For the short configuration messages (`01 08` ACK, `09 49` modes, `0D`
+read requests/responses), the two bytes before `F7` are a **little-endian
+14-bit two's-complement checksum**:
+
+    X  = K - (sum of bytes from immediately after F0 .. byte before chk)   (mod 2^14)
+    chk0 = X & 0x7F ; chk1 = (X >> 7) & 0x7F      (sent as low, high)
+
+Family constants K (empirically derived, verified on the corpus):
+
+| family | K |
+|---|---|
+| `01 08` ACK | `0x13A` |
+| `09 49` config, selector 0x00 | `0x28A` |
+| `09 49` config, selector 0x1F (fs C) | `0x18B` |
+| `09 49` config, selector 0x7E (fs B) / fs D | `0x38B` |
+| `09 49` config, selector 0x57/0x5A (groups/polarity) | `0x20B` |
+| `0D` (read req + `0D 49` response) | still open (no standard sum fits — see below) |
+
+Verified **bit-perfect**: 5224/5224 ACKs, and 1930/1935 `09 49` messages
+(the 5 mismatches were the spec's earlier wrong guess for the fs-D
+selector `40 0A` — it uses `0x28A`, not `0x38B`).
+
+### NOT SOLVED — `09 41 40` full-config page writes (and the `0D 49` read-back)
+
+The 1175-byte page writes (`09 41 40`) use a **different, non-linear
+checksum**: the K−S form fails (0/2376 matches), all standard ~20 CRC-16
+variants fail over every domain/start/end (0/936), an exhaustive scan of
+all 32768 16-bit polynomials × init × reflection × 6 domains found
+nothing (5 min, 12 cores), and simple hash families (DJB2/FNV/sdbm/
+adler/crc32/popcount/nibble/weighted) all fail. Empirically:
+- every payload byte is covered (mutating any single byte of a page with
+the stale checksum is NAKed and the write is dropped);
+- the checksum bytes are 7-bit (c1 ∈ {2,3,4} observed), so X is small
+(≈0x300), while the payload sums to thousands — the algorithm is likely
+not a plain integer sum.
+- A theoretical possibility: it may be the same 14-bit complement over a
+**transformed** element space (e.g. a per-position linear transform or a
+custom LFSR), which the exhaustive scans did not cover.
+
+**Status note (2026-09-06):** arbitrary page writes are NOT yet possible;
+we can only replay verbatim captured page sequences (which DO work, ACK
+each page and set state). The `0D` init read-back sweep works fully from
+`amidi` (23/24 responses; the 24th request answers `0D 79` — a variant
+response, harmless).
 
 ---
 
