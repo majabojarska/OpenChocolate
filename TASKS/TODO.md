@@ -9,7 +9,8 @@ How to work on this file:
 Open work, roughly in priority order. Items marked **[spec]** are detailed in
 `REVERSED_PROTOCOL_SPEC.md`. Done: bank A slots 2-7 (see FINISHED
 2026-09-07), foot B/C/D stored mapping (see FINISHED 2026-09-07),
-device/TRS/polarity read-back (see FINISHED 2026-09-07).
+device/TRS/polarity read-back (see FINISHED 2026-09-07), mode
+screenshots (see FINISHED 2026-09-07).
 
 ---
 

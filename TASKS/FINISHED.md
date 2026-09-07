@@ -2,6 +2,16 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Screenshot FootCtrlPlus in every device mode (2026-09-07)
+
+- `tools/shot_modes.py` (new): set → get-verify → `import -window`
+screenshot per mode; 13/13 PNGs in `screenshots/`
+(`FootCtrlPlus-<Pascal>Mode.png`, ~190-215KB each), device restored to
+`advanced_custom`. Each shot's mode proven by the get-verification in
+the run log; Speaker shot spot-checked visually (radio + explain text
+correct). Bonus: shots reveal true UI labels (`Video Model`, `Mix key`,
+`Tuner` option) should the `choco.py` labels ever need refining.
+
 ## Task — Device mode / TRS-jack / polarity in the init read-back (2026-09-07)
 
 - `tools/device_mode_sweep.py` (new): set-via-GUI + verify-via-get +
