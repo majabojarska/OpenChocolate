@@ -4,10 +4,10 @@
 
 - **Lint and format with `ruff`.** Config lives in `pyproject.toml`
   (line-length 88, modern-Python rules). Before finishing any edit to a
-  `.py` file, run:
+  `.py` file, run (always format before lint):
   ```sh
-  ruff check <file>.py
   ruff format <file>.py
+  ruff check <file>.py
   ```
   `ruff check` must pass with no errors; `ruff format --check` should show
   the file as formatted. If you fix lint issues, only run `--fix`
@@ -18,12 +18,27 @@
 
 ## Project layout (context)
 
+Root = product: the harness, decoders, and capture engine.
+`tools/` = tangential analysis/campaign/verify scripts (run from repo
+root — they resolve imports and `captures/` paths relative to it).
+
 - `choco.py` — CLI/GUI harness driving the M-Vave editor windows
   (xdotool/wmctrl), importable actions.
 - `midi.py` — ALSA sequencer recorder (`record()` context manager, archives
   to `captures/<MM_DD>/`).
 - `trace.py` — live/offline SysEx decoder (colors app->/pdl->, decodes the
   protocol: read_req/read_resp/discovery/mode/data2).
+- `analyze_captures.py` — capture parser shared by everything in `tools/`.
+- `camp2.py` — GUI fill + close/reopen capture workhorse used by the
+  campaign drivers in `tools/`.
+- `decode_stored.py` — foot B/C/D stored-region bank decoders.
+- `tools/` — one-shot or supporting scripts, by role:
+  - campaigns: `sweep_a_full.py`, `anchor_feet.py`, `rand_stored.py`
+  - solvers/search: `solve_bits.py`, `solve_stored.py`, `fmt_search.py`,
+    `fmt_search6.py`, `pick_bits.py`
+  - gates: `verify_a.py`, `verify_a2.py`, `verify_b.py`,
+    `verify_sweeps.py`, `rand_verify.py`, `verify_hypothesis.py`
+  - misc: `diff_chunks.py`, `direct_test.py`
 - `REVERSED_PROTOCOL_SPEC.md` — the reverse-engineered protocol spec; keep
   in sync with decoders in `trace.py`.
 - `TASKS/` — `TODO.md` (next task) and `FINISHED.md` (completed tasks,

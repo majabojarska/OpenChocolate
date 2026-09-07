@@ -27,6 +27,8 @@ def fill(bank: str, msgs: list[tuple[str, int, int, int]]) -> bool:
     # make sure FootCtrlPlus is the top window: if it's closed, reopen it.
     # start-foot-ctrl-plus only fires when the launchpad is on top, so a
     # non-zero exit just means FootCtrlPlus is already focused.
+    t_fill = time.perf_counter()
+    t_remove = t_add = t_set = 0.0
     if cli("state") != 0:
         return False
     import subprocess as _sp
@@ -42,18 +44,27 @@ def fill(bank: str, msgs: list[tuple[str, int, int, int]]) -> bool:
         time.sleep(6)
     if cli("remove-all", "--bank", bank):
         return False
-    time.sleep(1.2)
+    t_remove = time.perf_counter() - t_fill
+    time.sleep(0.7)
     for i, (mt, ch, d1, d2) in enumerate(msgs):
+        t0 = time.perf_counter()
         if cli("add", "--bank", bank):
             return False
-        time.sleep(1.2)
+        t_add += time.perf_counter() - t0
+        time.sleep(0.7)
         args = ["set-message", mt, str(ch), str(d1)]
         if mt != "pc":
             args.append(str(d2))
         args += ["--event", str(i), "--bank", bank]
+        t0 = time.perf_counter()
         if cli(*args):
             return False
-        time.sleep(1.2)
+        t_set += time.perf_counter() - t0
+        time.sleep(0.7)
+    print(
+        f"FILLTIMING remove={t_remove:.1f}s add={t_add:.1f}s"
+        f" set={t_set:.1f}s total={time.perf_counter() - t_fill:.1f}s"
+    )
     return True
 
 
@@ -66,16 +77,22 @@ from midi import record
 from choco import close_footctrlplus, start_foot_ctrl_plus, open_windows, top_of_stack
 import time
 with record("SINCO", "WINE midi driver", log_file="{path}", tee=False, rescan_after=0):
+    t0 = time.perf_counter()
     close_footctrlplus()
     for _ in range(60):
         if top_of_stack(open_windows()) == "launchpad": break
         time.sleep(0.1)
+    t1 = time.perf_counter()
     time.sleep(1.0)
     start_foot_ctrl_plus()
     for _ in range(120):
         if top_of_stack(open_windows()) == "footctrlplus": break
         time.sleep(0.1)
+    t2 = time.perf_counter()
     time.sleep(6)
+    t3 = time.perf_counter()
+print(f"CAPTIMING close_wait={{t1 - t0:.1f}}s "
+      f"reopen_wait={{t2 - t1 - 1.0:.1f}}s settle={{t3 - t2:.1f}}s")
 """
     r = subprocess.run(
         ["python3", "-c", code], capture_output=True, text=True, check=False
@@ -83,6 +100,9 @@ with record("SINCO", "WINE midi driver", log_file="{path}", tee=False, rescan_af
     if r.returncode:
         print(r.stderr.strip() or r.stdout.strip(), file=sys.stderr)
         return None
+    for line in r.stdout.splitlines():
+        if "CAPTIMING" in line or "recorded" in line:
+            print(f"  [capture] {line.strip()}")
     return path
 
 
@@ -101,12 +121,20 @@ def main() -> None:
         d2 = int(parts[3]) if len(parts) > 3 else 0
         msgs.append((mt, ch, d1, d2))
     print(f"filling bank {bank.upper()}: {msgs}")
+    t_start = time.perf_counter()
     if not fill(bank, msgs):
         print("fill failed", file=sys.stderr)
         sys.exit(1)
+    t_filled = time.perf_counter()
     print("capturing ...")
     path = capture(name)
+    t_done = time.perf_counter()
     if path:
+        print(
+            f"TIMING fill={t_filled - t_start:.1f}s"
+            f" capture={t_done - t_filled:.1f}s"
+            f" total={t_done - t_start:.1f}s"
+        )
         print(f"saved -> {path}")
     else:
         sys.exit(1)

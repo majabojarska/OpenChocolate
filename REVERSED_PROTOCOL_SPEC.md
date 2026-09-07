@@ -340,28 +340,27 @@ slot a different internal encoding:
 |---|---|---|
 | bank A slot 1 | @108–112 | complete (§4.3 above) |
 
-> **⚠ BANK A SLOTS 2-10 STATUS (2026-09-06):** the original rows below
-> were fit to the buggy-shifted parser (see the 0x16 note) — they are
-> RANGE-VERIFIED ONLY (they decode the original 3/5/10-slot captures,
-> which happen not to contain 0x16 bytes before these records). Slots
-> 8-10 were re-derived on the fixed parser and are **fully verified**
-> (20/20 sweep captures, byte-exact). Slots 2-7 are **NOT yet re-derived**:
-> an exhaustive per-bit solver (`pick_bits.py`) fit all 61 b-sweep
-> samples for s2 (and partly s3/s4), but the d1/d2 high bits were
-> under-constrained by the sweep values, and the fitted code regressed
-> the base decode, so it was **reverted** to the (range-limited) rows
-> below. Next: value-spread sweeps (d1/d2 across 1..127 for s3-7, ch=16),
-> then re-fit + verify. Draft evidence captures on disk:
-> `captures/09_06/camp_a_hi57.log` (s5-7 at 127), `camp_a6d2v{1,2}.log`
-> (s6 d2=1,2).
+> **BANK A SLOTS 2-7 SOLVED (2026-09-07):** value-spread campaign
+> (`sweep_a_full.py`: s3-7 × d2{1..127} × d1{33..127} × ch16, 65 variants)
+> + per-bit solver (`solve_bits.py`, ~117 samples/slot, mismatch-tolerant
+> with dissenter reporting) + `rand_verify.py a 9` 10/10 random banks.
+> Decoder: exact bit lists in `trace._A_SLOTS` assembled by `trace._x()`
+> (no phantom/overlap bits). Verification: `verify_a.py` 20/20,
+> `verify_a2.py` 48/48, `rand_verify a 9` 10/10, `solve_bits` zero
+> dissenters. Along the way: legacy pc/d2 expectations fixed (device
+> forces d2=0 for pc), one stale fill dropped (`camp_s6d2v2` slot 4),
+> solver tie-breaks arbitrated by rand data (s2 ch-bit3/d2 → classic
+> mapping; s6 d2-bit1 completed; s4 ch is 4-bit with type mask 0xFC).
+> Residual caveats: s7 ch<9 unconfirmed (all samples ch>=9); C-A s10
+> ch-b3/d2-b3 share a bit (exact on 10 samples, needs a spot-check).
 
-| bank A slot 2 | @113–119 | RANGE-VERIFIED (original): @114 `(ch−1)<<2`, @115 type (0x08 cc/0x10 noteon), @116 `(d1&7)<<4`, @117 `((d2&3)<<5)|(d1>>3)`, @118 `0x40+(d2>>2)` |
-| bank A slot 3 | @119–125 | RANGE-VERIFIED (original): @120 `ch−1`, @121 `type_index<<1`, @122 `(d1&0x1F)<<2`, @123 `((d2&0x1F)<<3)|(d1>>5)`, @124 `(d2>>5)` high bits |
-| bank A slot 4 | @125–130 | RANGE-VERIFIED (original): @125 `(ch-1)<<5`, @126 `type|((ch-1)>>3)`, @127 type (pc=00/cc=40), @128 d1 plain, @129 `(d2&0x3F)<<1`, @130 `((d2>>6)<<2)|1` (pc d2 forced 0) |
-| bank A slot 5 | @130–135 | RANGE-VERIFIED (original): @131 `(ch-1)<<3`, @132 type (0x10 cc/0x20 noteon), @133 `(d1&3)<<5`, @134 `(d1>>2)|((d2&1)<<6)`, @135 `d2>>1` |
-| bank A slot 6 | @136–141 | RANGE-VERIFIED (original): @137 `(ch-1)<<1`, @138 type (0x04 cc/0x08 noteon), @139 `(d1&7)<<3`, @140 `(d1>>4)|((d2&1)<<4)|((d2&4)<<4)`, @141 `(d2>>3)|0x20` |
-| bank A slot 7 | @142–147 | RANGE-VERIFIED (original): @142 `(ch-9)<<6`, @144 type (0x01 cc/0x02 noteon), @145 `(d1&0x3F)<<1`, @146 `(d2&0x1F)<<2`, @147 `(d2>>5)|0x08` |
-| bank A slot 8 | @148–152 | **FULLY DECODED** (2026-09-06): (ch-1)<<4, type_idx<<5 (0/32/64/96), (d1&1)<<6, d1>>1, d2 plain — verified on the a8 sweep (6 variants) |
+| bank A slot 2 | @113–119 | **SOLVED**: ch-1 in 114 bits 2-5; type {0x00 pc, 0x08 cc, 0x10 noteon, 0x18 noteoff}; d1 = (116>>4)&7 \| ((117&0x0F)<<3); d2 = (117>>5)&3 \| ((118&0x3F)<<2) |
+| bank A slot 3 | @119–125 | **SOLVED**: ch-1 plain @120 bits 0-3; type {0 pc, 2 cc, 4 noteon, 6 noteoff}; d1 = (122>>2)&0x1F \| ((123&3)<<5); d2 = (123>>3)&0x1F \| ((124&7)<<4) |
+| bank A slot 4 | @125–130 | **SOLVED**: ch-1 4-bit (125:5-6, 126:0-1); type {0x00 pc, 0x40 cc} mask 0xFC — **pc/cc-ONLY** (combo has 2 entries; noteon/noteoff wrap to pc/cc, device-side); d1 plain @128; d2 = (129>>1)&0x3F \| ((130&1)<<6), stale/0 for pc |
+| bank A slot 5 | @130–135 | **SOLVED** (agrees with original row, now high-bit verified to 127): ch-1 = (131>>3)&0x0F; type {0x00 pc, 0x10 cc, 0x20 noteon, 0x30 noteoff}; d1 = (133>>5)&3 \| ((134&0x3F)<<2); d2 = (134>>6)&1 \| ((135&0x3F)<<1) |
+| bank A slot 6 | @136–141 | **SOLVED** (old row missed d2-bit1): ch-1 = (137>>1)&0x0F; type {0x00 pc, 0x04 cc, 0x08 noteon, 0x0C noteoff}; d1 = (139>>3)&0x0F \| ((140&7)<<4); d2 = (140>>4)&1 \| (141&1)<<1 \| ((140>>6)&1)<<2 \| ((141>>1)&1)<<3 \| ((141>>2)&1)<<4 \| ((141>>3)&1)<<5 \| ((140>>5)&1)<<6 |
+| bank A slot 7 | @142–147 | **SOLVED**: ch-1 = (142>>6)&1 \| ((143&7)<<1), +1 (ch<9 unconfirmed); type {0x00 pc, 0x01 cc, 0x02 noteon, 0x03 noteoff}; d1 = (145>>1)&0x3F \| ((146&1)<<6); d2 = (146>>2)&0x1F \| ((147&3)<<5) |
+| bank A slot 8 | @148–152 | **FULLY DECODED** (2026-09-06, extended 2026-09-07): ch-1 bits 0-2 @148:4-6 + bit3 @149:0, type_idx<<5 (0/32/64/96), (d1&1)<<6, d1>>1, d2 plain — verified on the a8 sweep (6 variants) + s8ch9/12/16 single-field fills |
 | bank A slot 9 | @154–158 | **FULLY DECODED** (2026-09-06): (ch-1)<<2, type_idx<<3, (d1&7)<<4, (d1>>3)|((d2&3)<<5), 0x40|(d2>>2) — verified on the a9 sweep |
 | bank A slot 10 | @160–164 | **FULLY DECODED** (2026-09-06): ch-1, type_idx<<1, (d1&0x1F)<<2, ((d2&0xF)<<3)|(d1>>5), d2>>4 — verified on a10 sweep + d2 sweep (no 0x10 marker bit) |
 | bank B slot 1 | @200–204 | @200 `ch−1`, @201 `type_index<<1` (0/2/4/6), @202 `(d1&0x1F)<<2`, @203 `(d2&0x0F)<<3 \| (d1>>5)`, @204 `0x10 \| (d2>>4)` (bit 4 optional in some read-backs) — **FULLY DECODED** (format A) |
@@ -415,11 +414,66 @@ slot 1 data2 88→38, slot 2 data1 19→13, and missed slot 3 entirely — the
 OCR is the flaky component, not the `0D` decode (which is exact where the
 layout is mapped).
 
-**Footswitch regions** (same `000000` chunk, per-footswitch offsets):
-footswitch A ~@108–300, footswitch B ~@585+. Each footswitch has its own
-region with its own record layout; same diff technique applies per region.
+**Footswitch regions and stored packing: SOLVED (2026-09-07), see §4.5.**
+The viewed bank areas are view-relative (same offsets for every foot);
+each foot's persistent bank data lives at fixed stored homes with a
+foot-independent packing palette (per-slot formats, §4.5 table).
 
----
+### 4.5 Footswitch stored regions — SOLVED (2026-09-07)
+
+Two behaviors discovered via the anchor campaign (`anchor_feet.py`, 12
+captures: BASE + HI per foot×bank):
+
+1. **FootCtrlPlus resets to footswitch A on every open.** Every
+   `camp2.py` capture (close + reopen) therefore views foot A. Foot
+   switching is write-only for the harness: re-select before EVERY fill
+   (`anchor_feet.py`/`rand_stored.py` do this; the first anchor attempt
+   silently filled foot A and its logs were discarded). View-switch
+   clicks emit zero MIDI (traced twice) — the init read loop is the only
+   read path and always dumps the whole config.
+2. **Viewed bank areas are view-relative** (`000000` @108+ bank A,
+   @199+ bank B — same offsets for every foot), while each foot's
+   persistent bank data lives at **fixed stored homes** with a
+   foot-independent packing palette (proven: foot B and D stored HI
+   records byte-identical; 6-point format matches across feet).
+
+Stored homes (chunk addr, offset). Bank stride is 72 bytes:
+
+| foot | bank A home | bank B home |
+|---|---|---|
+| A | viewed (0,0,0)@108 | viewed (0,0,0)@199 |
+| B | (0,0,0)@~584 | (0,0,0)@~676 |
+| C | (0,0,0)@~1055 | (113,7,0)@~0 |
+| D | (113,7,0)@~384 | (113,7,0)@~476 |
+
+Per-slot stored formats (from `fmt_search6.py` 6-point matches over
+BASE + HI + 4 randoms per home, `s8f` = unified s8/fmtf/slot1 form):
+
+| home | slot formats 1-10 |
+|---|---|
+| B-A | fmtd fmte s8f s9 s10a **bits** fmtc fmtd fmte s8f |
+| B-B | s8f s9 s10a **bits** fmtc fmtd fmte s8f s9 **bits** |
+| C-A | **bits** s5view fmtd fmte s8f s9 s10a **bits** fmtc **bits** |
+| C-B | s10a **bits** fmtc fmtd fmte s8f s9 **bits** s10a fmtc |
+| D-A | fmtd fmte s8f s9 s10a **bits** fmtc fmtd fmte s8f |
+| D-B | s8f s9 s10a **bits** fmtc fmtd fmte s8f s9 **bits** |
+
+**bits** = solved-by-solver slots (`solve_stored.py`, 10 samples each,
+zero dissenters; `decode_stored.STORED_BITS`): near-universal record
+`ch=[+0:5,+0:6,+1:0,+1:1], d1=plain@+3, d2=[+4:1-6,+5:0]`, type = standard
+2-bit code `[(+1:6),(+2:0)]` pc=00 cc=10 noteon=01 noteoff=11 — except
+bank-B slot 10 (B+D joint solve: ch plain @+1, d1=[+3:2-6,+4:0-1],
+d2=[+4:3-6,+5:0-2], type [(+2:1),(+2:2)] standard) and C-A s1/s8/s10
+(per-home fits). Per-foot divergences are real but mapped (e.g. C-A s2
+= s5view vs B/D = fmte; C-B s6 = s8f vs fmtd; C-B s7 = s9 vs fmte) —
+no full sweep needed, the per-home tables ARE the complete map.
+
+Verification: `decode_stored.decode_home()` over all 60 B/C/D captures
+(12 anchors + 48 stored randoms) = **599/600 slots exact** (1 documented
+fill-side type miss: `camp_fDst_a_33_0` slot 2 holds cc, fill meant
+noteon — 9 sibling samples confirm the code; decoder is right).
+Residual caveats: C-A s10 ch-b3/d2-b3 share a bit (exact on 10,
+needs a spot-check); unobserved type codes decode '?'.
 
 ## 5. Checksum
 
@@ -499,13 +553,14 @@ region id. The offset byte `0x68` may be the region being committed.
 *Experiment:* edit slot 2 only; edit a foot switch page; watch for the byte
 changing.
 
-### 6.4 Full blob layout: banks & foot switches
-We only mapped the current view (foot switch A, bank A). Where do banks A/B
-and foot switches B/C/D live in the blob? The +350 px UI shift for bank B
-suggests two side-by-side pages, but the wire layout is unknown.
+### 6.4 Full blob layout: banks & foot switches — SOLVED (2026-09-07)
 
-*Experiment:* diff blob images across (foot switch × bank) with `--raw` —
-pattern from the 10-slot demo applies.
+Mapped (see §4.5): the viewed bank areas are view-relative (foot A @108+
+bank A / @199+ bank B after every reopen, which resets to foot A), and
+each foot's persistent bank data lives at fixed stored homes (table in
+§4.5, 72-byte bank stride) decoded by `decode_stored.decode_home()`.
+The +350 px UI bank shift has no wire counterpart — both banks' viewed
+records sit at fixed offsets regardless of foot.
 
 ### 6.5 Device outbound (button presses)
 Pressing the pedal with N mapped PC events emitted N × `Program change 0,
@@ -528,6 +583,14 @@ python3 trace.py                          # live decode (taps both ports itself)
 python3 trace.py --raw                    # ... with full hex
 python3 trace.py captures/09_05/xxx.log   # offline re-analysis of an archive
 python3 choco.py set-message cc 5 64 80 --bank b   # drive a specific config
+python3 tools/sweep_a_full.py              # bank-A s3-7 value-spread campaign (writes /tmp/ba_map.json)
+python3 tools/anchor_feet.py [b c d]       # B/C/D BASE+HI anchors (per-variant foot re-select!)
+python3 tools/rand_stored.py <foot> <bank> <seed> <n>  # stored-region random banks
+python3 tools/solve_bits.py [slots]        # viewed s2-7 per-bit solver
+python3 tools/solve_stored.py              # stored-slot solver (10 missing homes)
+python3 tools/fmt_search6.py               # 6-point stored format matcher
+python3 tools/verify_a.py / verify_a2.py / verify_b.py  # offline regression gates
+python3 tools/rand_verify.py a <seed>      # 10 random banks, live gate (slot 4 = pc/cc only)
 ```
 
 Conventions: app-> = host→device (green in tty), pdl-> = device→host

@@ -17,17 +17,20 @@ def spec(t: str, ch: int, d1: int, d2: int) -> str:
     return f"{t}:{ch}:{d1}:{d2}" if t != "pc" else f"{t}:{ch}:{d1}:0"
 
 
-def gen_bank(rng: random.Random) -> list[tuple]:
+def gen_bank(rng: random.Random, bank: str = "b") -> list[tuple]:
     """Random 10-message bank: avoid the all-zeros ambiguity edge case and
-    keep pc data1 >= 1 (data1 0 would be indistinguishable from empty)."""
-    bank = []
-    for _ in range(10):
-        t = rng.choice(TYPE_POOL)
+    keep pc data1 >= 1 (data1 0 would be indistinguishable from empty).
+    Bank A slot 4 is pc/cc-only (its combo has 2 entries; noteon/noteoff
+    wrap to pc/cc), so restrict it there."""
+    bank_msgs = []
+    for i in range(10):
+        pool = ["pc", "cc"] if bank == "a" and i == 3 else TYPE_POOL
+        t = rng.choice(pool)
         ch = rng.randint(1, 16)
         d1 = rng.randint(1, 127)
         d2 = rng.randint(1, 127) if t != "pc" else 0
-        bank.append((t, ch, d1, d2))
-    return bank
+        bank_msgs.append((t, ch, d1, d2))
+    return bank_msgs
 
 
 def main() -> None:
@@ -39,7 +42,7 @@ def main() -> None:
     rng = random.Random(seed)
     ok = 0
     for n in range(10):
-        bank_msgs = gen_bank(rng)
+        bank_msgs = gen_bank(rng, bank)
         name = f"rand_{bank}_{seed}_{n}"
         args = [spec(*m) for m in bank_msgs]
         r = subprocess.run(

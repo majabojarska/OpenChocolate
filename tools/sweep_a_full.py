@@ -10,8 +10,12 @@ expected 10 messages) for pick_bits.py. Requires the GUI stack up
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
+
+CAPTURES_DIR = "captures/09_06"
+MAP_PATH = "/tmp/ba_map.json"
 
 BASE = [
     ("cc", 4, 17, 55),
@@ -120,15 +124,22 @@ def main() -> None:
     variants.append(("s7ch16", m))
 
     for name, msgs in variants:
+        path = f"{CAPTURES_DIR}/camp_{name}.log"
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            mapping[f"camp_{name}.log"] = [list(m) for m in msgs]
+            print(f"  SKIP {name} (already on disk)")
+            continue
         if run_one(name, msgs):
             mapping[f"camp_{name}.log"] = [list(m) for m in msgs]
             print(f"  OK {name}")
         else:
             print(f"  FAILED {name}")
+        with open(MAP_PATH, "w") as f:
+            json.dump(mapping, f, indent=1)
 
-    with open("/tmp/ba_map.json", "w") as f:
+    with open(MAP_PATH, "w") as f:
         json.dump(mapping, f, indent=1)
-    print(f"saved /tmp/ba_map.json with {len(mapping)} entries")
+    print(f"saved {MAP_PATH} with {len(mapping)} entries")
 
 
 if __name__ == "__main__":

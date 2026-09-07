@@ -374,7 +374,7 @@ def decode_b_slots(chunk: bytes) -> list[dict]:
 # Bank A slot 2 (@113-119) and slot 3 (@120-124) decoders, from the 3-slot
 # capture diffs (verified: slot2 noteon ch6/31/99, slot3 noteoff ch8/55/77
 # and cc ch5/70/110).
-_B2_TYPE = {0x08: "cc", 0x10: "noteon"}
+_B2_TYPE = {0x00: "pc", 0x08: "cc", 0x10: "noteon", 0x18: "noteoff"}
 _B3_TYPE = {0: "pc", 2: "cc", 4: "noteon", 6: "noteoff"}
 
 
@@ -388,93 +388,182 @@ def _b2(c: bytes, idx: int, bit: int) -> int:
     return (c[idx] >> bit) & 1
 
 
-def decode_bank_a_slots(chunk: bytes) -> list[dict]:
-    """Decode bank A slots 1-3 from the 000000 chunk (3-slot layout).
+def _x(chunk: bytes, base: int, poss: list[tuple[int, int]]) -> int:
+    """Assemble a field from scattered LSB-first record bits.
 
-    Slot records are variable-length bit-packed (no uniform stride); this
-    covers the first three records at their mapped offsets.
+    poss[k] = (byte offset from base, bit) holding value-bit k. Exact:
+    no phantom high bits, no overlaps. Position lists come verbatim from
+    solve_bits.py output (slot spans: s2 @113, s3 @119, s4 @124, s5 @130,
+    s6 @136, s7 @141).
+    """
+    v = 0
+    for k, (o, b) in enumerate(poss):
+        v |= ((chunk[base + o] >> b) & 1) << k
+    return v
+
+
+# Bank A slots 2-7 field bit positions (value-bit k -> (byte off, bit)),
+# solved by solve_bits.py over ~117 samples per slot (b-sweeps + a_base +
+# a_hi57 + d1/d2 value spreads to 127 + ch16). Types keep their verified
+# code reads (ty/ty2 sweep samples pass through the verifiers). Slot 2's
+# ch-bit3/d2 rows are rand-verified corrections: the solver tied 114:0 vs
+# 114:5 (ch), 115:4 vs 117:6 (d2b1), 114:0 vs 118:1 (d2b3); rand seed 7
+# split every tie in favor of the classic mapping.
+_A_SLOTS = {
+    # slot: (span base, ch-1 poss, type reader, d1 poss, d2 poss)
+    2: (
+        113,
+        [(1, 2), (1, 3), (1, 4), (1, 5)],
+        None,
+        [(3, 4), (3, 5), (3, 6), (4, 0), (4, 1), (4, 2), (4, 3)],
+        [(4, 5), (4, 6), (5, 0), (5, 1), (5, 2), (5, 3), (5, 4)],
+    ),
+    3: (
+        119,
+        [(1, 0), (1, 1), (1, 2), (1, 3)],
+        None,
+        [(3, 2), (3, 3), (3, 4), (3, 5), (3, 6), (4, 0), (4, 1)],
+        [(4, 3), (4, 4), (4, 5), (4, 6), (5, 0), (5, 1), (5, 2)],
+    ),
+    4: (
+        124,
+        [(1, 5), (1, 6), (2, 0), (2, 1)],
+        None,
+        [(4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6)],
+        [(5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (6, 0)],
+    ),
+    5: (
+        130,
+        [(1, 3), (1, 4), (1, 5), (1, 6)],
+        None,
+        [(3, 5), (3, 6), (4, 0), (4, 1), (4, 2), (4, 3), (4, 4)],
+        [(4, 6), (5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5)],
+    ),
+    6: (
+        136,
+        [(1, 1), (1, 2), (1, 3), (1, 4)],
+        None,
+        [(3, 3), (3, 4), (3, 5), (3, 6), (4, 0), (4, 1), (4, 2)],
+        [(4, 4), (4, 5), (4, 6), (5, 0), (5, 1), (5, 2), (5, 3)],
+    ),
+    7: (
+        141,
+        [(1, 6), (2, 0), (2, 1), (2, 2)],
+        None,
+        [(4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (5, 0)],
+        [(5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (6, 0), (6, 1)],
+    ),
+}
+
+
+# Per-slot type-code tables (slot -> {code byte: type}). Solved from ty-gap
+# fills: s6 noteoff=0x0C pc=0x00; s7 noteoff=0x03 pc=0x00; s2 pc=0x00
+# noteoff=0x18; s5 pc=0x00 noteoff=0x30. Slot 4 is pc/cc-ONLY (its combo
+# has 2 entries; noteon/noteoff wrap to pc/cc) so no codes exist there.
+_A_TYPES = {
+    2: _B2_TYPE,
+    3: _B3_TYPE,
+    4: {0x00: "pc", 0x40: "cc"},
+    5: {0x00: "pc", 0x10: "cc", 0x20: "noteon", 0x30: "noteoff"},
+    6: {0x00: "pc", 0x04: "cc", 0x08: "noteon", 0x0C: "noteoff"},
+    7: {0x00: "pc", 0x01: "cc", 0x02: "noteon", 0x03: "noteoff"},
+}
+
+
+def decode_bank_a_slots(chunk: bytes) -> list[dict]:
+    """Decode bank A slots 1-10 from the 000000 chunk.
+
+    Slot 1 via decode_slot1; slots 2-7 via the _A_SLOTS bit positions
+    (solve_bits.py, ~117 samples each); slots 8-10 via their verified
+    rows below. Slot records are variable-length bit-packed.
     """
     out = [decode_slot1(chunk, "a")]
-    # slot 2
-    ch2 = (chunk[114] >> 2) + 1
-    t2 = _B2_TYPE.get(chunk[115], "?")
-    d1_2 = ((chunk[117] & 0x1F) << 3) | (chunk[116] >> 4)
-    d2_2 = ((chunk[118] - 0x40) << 2) | (chunk[117] >> 5)
-    out.append({"channel": ch2, "type": t2, "data1": d1_2, "data2": d2_2})
-    # slot 3
-    ch3 = chunk[120] + 1
-    t3 = _B3_TYPE.get(chunk[121], "?")
-    d1_3 = (chunk[122] >> 2) | ((chunk[123] & 0x07) << 5)
-    d2_3 = (chunk[123] >> 3) | (((chunk[124] >> 1) & 3) << 5)
-    out.append({"channel": ch3, "type": t3, "data1": d1_3, "data2": d2_3})
-    # slots 4-5 (5-slot layout):
-    #   slot4 @125-130: @125 (ch-1)<<5, @126 type|((ch-1)>>3), @127 type
-    #     (pc=00/cc=40), @128 d1 plain, @129 (d2&0x3F)<<1, @130 ((d2>>6)<<2)|1
-    #   slot5 @130-135: @131 (ch-1)<<3, @132 type?, @133 (d1&3)<<5,
-    #     @134 ((d2&1)<<6)|3, @135 d2>>1  (d1 high bits pending)
+    # slots 2-7 via _A_SLOTS bit positions (solve_bits.py). Type codes keep
+    # their verified reads (s4 mask widened to 0xFC: ch>=9 spills ch bits
+    # into 126:1, which broke the old 0xFE mask).
+    base, chp, _, d1p, d2p = _A_SLOTS[2]
     out.append(
         {
-            "channel": (((chunk[125] & 0x7F) >> 5) | ((chunk[126] & 1) << 2)) + 1,
-            "type": {0x00: "pc", 0x40: "cc"}.get(chunk[126] & 0xFE, "?"),
-            "data1": chunk[128],
-            "data2": (chunk[129] >> 1) | ((chunk[130] >> 2) << 6)
-            if (chunk[126] & 0xFE) != 0x00
-            else 0,
+            "channel": _x(chunk, base, chp) + 1,
+            "type": _A_TYPES[2].get(chunk[115], "?"),
+            "data1": _x(chunk, base, d1p),
+            "data2": _x(chunk, base, d2p),
         }
     )
+    base, chp, _, d1p, d2p = _A_SLOTS[3]
     out.append(
         {
-            "channel": (chunk[131] >> 3) + 1,
-            "type": {0x10: "cc", 0x20: "noteon"}.get(chunk[132], "?"),
-            "data1": (chunk[133] >> 5) | ((chunk[134] & 0x3F) << 2),
-            "data2": (chunk[135] << 1) | ((chunk[134] >> 6) & 1),
+            "channel": _x(chunk, base, chp) + 1,
+            "type": _A_TYPES[3].get(chunk[121], "?"),
+            "data1": _x(chunk, base, d1p),
+            "data2": _x(chunk, base, d2p),
         }
     )
-    # slot 6 (10-slot layout) — fully decoded:
-    #   @137 (ch-1)<<1, @138 type (0x04 cc/0x08 noteon), @139 (d1&7)<<3,
-    #   @140 (d1>>4) | ((d2&1)<<4) | ((d2&4)<<4), @141 (d2>>3)|0x20
+    # slot 4 is pc/cc-only (2-type code); d2 is stale for pc.
+    base, chp, _, d1p, d2p = _A_SLOTS[4]
+    t4 = _A_TYPES[4].get(chunk[126] & 0xFC, "?")
     out.append(
         {
-            "channel": (chunk[137] >> 1) + 1,
-            "type": {0x04: "cc", 0x08: "noteon"}.get(chunk[138], "?"),
-            "data1": (chunk[139] >> 3) | ((chunk[140] & 0x07) << 4),
-            "data2": ((chunk[141] & 0x1F) << 3)
-            | ((chunk[140] >> 6) << 2)
-            | ((chunk[140] >> 4) & 1),
+            "channel": _x(chunk, base, chp) + 1,
+            "type": t4,
+            "data1": _x(chunk, base, d1p),
+            "data2": _x(chunk, base, d2p) if t4 != "pc" else 0,
         }
     )
-    # slot 7 (10-slot layout): @142 (ch-9)<<6, @144 type (0x01 cc/0x02
-    # noteon), @145 (d1&0x3F)<<1, @146 (d2&0x1F)<<2, @147 (d2>>5)|0x08
+    base, chp, _, d1p, d2p = _A_SLOTS[5]
     out.append(
         {
-            "channel": (chunk[142] >> 6) + 9,
-            "type": {0x01: "cc", 0x02: "noteon"}.get(chunk[144], "?"),
-            "data1": (chunk[145] >> 1) & 0x3F,
-            "data2": (chunk[146] >> 2) | ((chunk[147] & 0x07) << 5),
+            "channel": _x(chunk, base, chp) + 1,
+            "type": _A_TYPES[5].get(chunk[132], "?"),
+            "data1": _x(chunk, base, d1p),
+            "data2": _x(chunk, base, d2p),
+        }
+    )
+    base, chp, _, d1p, d2p = _A_SLOTS[6]
+    out.append(
+        {
+            "channel": _x(chunk, base, chp) + 1,
+            "type": _A_TYPES[6].get(chunk[138], "?"),
+            "data1": _x(chunk, base, d1p),
+            "data2": _x(chunk, base, d2p),
+        }
+    )
+    # slot 7 ch: top bit rides with the old row's 142:6 (ch>=9 in all
+    # samples); ch<9 needs a targeted sample to confirm.
+    base, chp, _, d1p, d2p = _A_SLOTS[7]
+    out.append(
+        {
+            "channel": _x(chunk, base, chp) + 1,
+            "type": _A_TYPES[7].get(chunk[144], "?"),
+            "data1": _x(chunk, base, d1p),
+            "data2": _x(chunk, base, d2p),
         }
     )
     # slots 8-10 (10-slot layout) — verified on the a8/a9/a10 sweeps +
     # a10 d2 sweep:
-    #   s8 @148-152: (ch-1)<<4, type_idx<<5, (d1&1)<<6, d1>>1, d2 plain
+    #   s8 @148-152: (ch-1)<<4, type_idx<<5, (d1&1)<<6, d1>>1, d2 plain;
+    #   ch-1 bit3 @149:0 (solved from s8ch9/12/16 single-field fills).
     if not any(chunk[148:153]):
         pass
     else:
         out.append(
             {
-                "channel": (chunk[148] >> 4) + 1,
+                "channel": (((chunk[148] >> 4) & 0x07) | ((chunk[149] & 0x01) << 3))
+                + 1,
                 "type": _BA_TYPE.get(chunk[149] >> 5, "?"),
                 "data1": (chunk[151] << 1) | (chunk[150] >> 6),
                 "data2": chunk[152] if (chunk[149] >> 5) else 0,
             }
         )
     #   s9 @154-158: (ch-1)<<2, type_idx<<3, (d1&7)<<4,
-    #     (d1>>3)|((d2&3)<<5), 0x40|(d2>>2)
+    #     (d1>>3)|((d2&3)<<5), 0x40|(d2>>2). ch masked to 4 bits (ch<=16;
+    #   upper bits read zero in all captures incl. ch15/16 random banks).
     if not any(chunk[154:159]):
         pass
     else:
         out.append(
             {
-                "channel": (chunk[154] >> 2) + 1,
+                "channel": ((chunk[154] >> 2) & 0x0F) + 1,
                 "type": _BA_TYPE.get(chunk[155] >> 3, "?"),
                 "data1": (chunk[156] >> 4) | ((chunk[157] & 0x1F) << 3),
                 "data2": ((chunk[158] - 0x40) << 2) | (chunk[157] >> 5)
@@ -483,13 +572,13 @@ def decode_bank_a_slots(chunk: bytes) -> list[dict]:
             }
         )
     #   s10 @160-164: ch-1, type_idx<<1, (d1&0x1F)<<2,
-    #     ((d2&0xF)<<3)|(d1>>5), d2>>4
+    #     ((d2&0xF)<<3)|(d1>>5), d2>>4. ch masked to 4 bits (ch<=16).
     if not any(chunk[160:165]):
         pass
     else:
         out.append(
             {
-                "channel": chunk[160] + 1,
+                "channel": (chunk[160] & 0x0F) + 1,
                 "type": _BA_TYPE.get(chunk[161] >> 1, "?"),
                 "data1": (chunk[162] >> 2) | ((chunk[163] & 0x07) << 5),
                 "data2": ((chunk[163] >> 3) & 0x0F) | (chunk[164] << 4)

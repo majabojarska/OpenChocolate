@@ -2,6 +2,67 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Bank A slots 2-7 SOLVED + feet B/C/D stored mapping + spot suite (2026-09-07)
+
+### Phase 0 — foot A bank A slots 2-7: fully decoded, rand-gated
+
+- `sweep_a_full.py` resumed to completion (65 variants: s3-7 ×
+  d2{1..127} × d1{33..127} × ch16 + s4-non-PC; one stuck-dialog
+  incident dismissed via Escape, 11 variants re-run clean).
+- `solve_bits.py` (new): mismatch-tolerant per-bit solver (~117
+  samples/slot, dissenter reporting). It caught a legacy expectation bug
+  (pc d2+3/+15 never take; device forces 0), one stale fill
+  (`camp_s6d2v2` slot 4), and proved the s4 ch is 4-bit (type mask
+  0xFE→0xFC) and s6 d2-bit1 (old row missed it).
+- Decoder rewritten as exact bit lists (`trace._A_SLOTS` + `_x()`;
+  transcription errors eliminated after one caught by verify_a).
+  Solver tie-breaks arbitrated by rand data (s2 → classic mapping).
+- Type codes completed via gap fills: s2 pc/noteoff, s5 pc/noteoff, s6
+  noteoff/pc, s7 noteoff/pc, s8 ch-bit3 @149:0. **Slot 4 is pc/cc-ONLY**
+  (2-entry combo; noteon/noteoff wrap) — `rand_verify` restricts it.
+- Gates: `verify_a.py` 20/20, `verify_a2.py` 48/48,
+  `rand_verify.py a 9` 10/10 random banks byte-exact. Spec §4.4 updated.
+
+### Phase 1 — feet B/C/D: anchor sweep + stored packing solved
+
+- **Reopen-reset found**: FootCtrlPlus resets to footswitch A on every
+  open, so every close+reopen capture views foot A. First anchor attempt
+  silently filled A (logs deleted); `anchor_feet.py` re-selects per
+  variant. View-switches emit zero MIDI (traced twice).
+- Viewed areas are view-relative (same offsets all feet); persistent
+  per-foot bank data lives at stored homes (72-byte bank stride;
+  region map in spec §4.5). Packing is foot-independent (B==D HI bytes;
+  6-point format matches across feet) but per-slot formats differ per
+  home in a few slots (C-A s2, C-B s6/s7 mapped, not swept).
+- `fmt_search6.py` (6-point format matcher) + `solve_stored.py` (10pt
+  per-bit solver) + `decode_stored.py` (per-home tables). Universal
+  stored record for most slots: ch=[+0:5,+0:6,+1:0,+1:1], d1 plain @+3,
+  d2=[+4:1-6,+5:0], standard 2-bit type code.
+- Round-2 randoms (24 captures) arbitrated solver ties toward the
+  majority pattern; joint B+D solve confirmed bank-B s10.
+
+### Phase 2 — spot suite: 60 captures, 599/600 slots exact
+
+- 12 anchors + 48 stored randoms (seeds 21/22/23/31/32/33) decoded via
+  `decode_stored.decode_home()`: **599/600 exact**, 0 unsolved. The one
+  mismatch is a documented fill-side type miss (`camp_fDst_a_33_0` s2
+  holds cc, fill meant noteon — 9 sibling samples confirm the code).
+- Layout verdict: per-foot format assignments differ in a few slots but
+  everything is mapped — **no full sweep needed** (nothing unmapped).
+- Residual caveats: C-A s10 ch-b3/d2-b3 share a bit (exact on 10,
+  needs a spot-check); s7 ch<9 unconfirmed; unobserved type codes → '?'.
+
+### Tooling / harness changes
+
+- `camp2.py`: sleeps 1.2→0.7s (~10s/variant saved, 12/12 + 24/24 OK),
+  FILLTIMING/CAPTIMING/TIMING instrumentation; `sweep_s2_ty.py`,
+  `sweep_gaps2.py`, `anchor_feet.py`, `rand_stored.py` campaign drivers
+  (all resume-safe with incremental maps).
+- `rand_verify.py`: bank-A slot 4 restricted to pc/cc (device clamp).
+- `verify_a2.py`: pc/d2=0 + slot-4 clamp expectations fixed.
+- `solve_bits.py`, `fmt_search.py`, `fmt_search6.py`, `solve_stored.py`,
+  `decode_stored.py` kept as analysis/decoder tooling.
+
 ## Task — Checksum SOLVED for small families; direct amidi control; bank A 8-10 re-derived at true offsets (2026-09-06)
 
 ### Direct SysEx control without the GUI — WORKS

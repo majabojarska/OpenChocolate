@@ -55,6 +55,13 @@ def expected(name: str) -> list[dict] | None:
             v = (nt, ch, d1, 0)
         elif var == "chd":
             v = (t, max(ch - 1, 1), d1, d2)
+        # device realities the fills obey: pc ignores d2 (always 0), and
+        # slot 4's combo is pc/cc-only (noteon wraps to pc, noteoff to cc).
+        if v[0] == "pc":
+            v = (v[0], v[1], v[2], 0)
+        if sidx == 3 and v[0] not in ("pc", "cc"):
+            v = ("pc" if v[0] == "noteon" else "cc", v[1], v[2], v[3])
+            v = (v[0], v[1], v[2], 0 if v[0] == "pc" else v[3])
         msgs = BASE[:sidx] + [v] + BASE[sidx + 1 :]
         return [
             {"channel": c, "type": ty, "data1": a, "data2": b} for ty, c, a, b in msgs
