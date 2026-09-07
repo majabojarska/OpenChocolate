@@ -30,6 +30,8 @@ import subprocess
 import sys
 from collections.abc import Iterable
 
+from choco import DEVICE_MODES as _DEVICE_MODE_ORDER
+
 # -*- ANSI colors for direction-tagged lines (aggressive; override with --no-color).
 _COLOR = {
     "app->": "\033[32m",  # green
@@ -98,8 +100,35 @@ TRS_JACK_MODE_BYTE_TO_NAME = {
     0x01: "trs_midi",
 }
 
+# TRS jack mode in the init read-back (chunk (0,0,0) byte 1). NOTE: these
+# codes differ from the live write protocol (TRS_JACK_MODE_BYTE_TO_NAME
+# above: 0x01 there): 0x00 = expression pedal, 0x02 = TRS MIDI (solved
+# 2026-09-07 from the trs_expression_pedal/trs_trs_midi init captures;
+# byte 1 otherwise untouched across all 13 device-mode captures).
+TRS_JACK_READBACK = {0x00: "expression_pedal", 0x02: "trs_midi"}
+
+
+def decode_device_mode(chunk: bytes) -> str:
+    """Device mode from the init read-back: chunk (0,0,0) byte 0.
+
+    Enum 0x00-0x0C in GUI radio order (solved 2026-09-07: all 13 modes
+    captured, each differs from advanced_custom in exactly this byte).
+    Order is choco.DEVICE_MODES (single source of truth).
+    """
+    idx = chunk[0]
+    if 0 <= idx < len(_DEVICE_MODE_ORDER):
+        return list(_DEVICE_MODE_ORDER)[idx]
+    return "?"
+
+
+def decode_trs_jack_mode(chunk: bytes) -> str:
+    """TRS jack mode from the init read-back: chunk (0,0,0) byte 1."""
+    return TRS_JACK_READBACK.get(chunk[1], "?")
+
+
 # TRS jack reverse-polarity toggle (op 0x49, selector 02 5A, off=0x38):
-# byte 17 = 0x00 when ON (reversed), 0x01 when OFF.
+# byte 17 = 0x00 when ON (reversed), 0x01 when OFF (operator-correlated
+# 2026-09-05; toggle-direction ambiguity documented at the decode site).
 TRS_POLARITY_SELECTOR = 0x025A
 TRS_POLARITY_OFF = 0x38
 
@@ -657,6 +686,14 @@ def decode_sysex(b: bytes) -> dict[str, object]:
                     )
             elif sel == TRS_POLARITY_SELECTOR and b[10] == TRS_POLARITY_OFF:
                 # TRS jack reverse-polarity: 00 = on (reversed), 01 = off.
+                # Ambiguity note (2026-09-07): two pixel-verified toggles show
+                # on->off sends 0x00 and off->on sends 0x01, which fits EITHER
+                # new-state semantics (00=OFF, uniform with all other mode
+                # writes) OR old-state semantics (00=ON, as the operator
+                # correlated in 2026-09-05). Toggle sequences cannot decide
+                # (both theories predict identical bytes); kept 00=ON per
+                # the operator note. Decisive test: absolute amidi write +
+                # TRS signal measurement (spec section 2f).
                 info["switch"] = "trs-pol"
                 info["polarity"] = "on" if b[17] == 0x00 else "off"
             else:

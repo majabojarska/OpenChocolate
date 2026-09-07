@@ -178,6 +178,11 @@ Mode byte `17`:
 Checksums (mode → `CHK1 CHK2`): `74 03`, `72 03`, `70 03`, `6E 03`, …,
 `5C 03` — `CHK1` decrements by 2 per mode step, `CHK2` stays `03`.
 
+**Read-back** (solved 2026-09-07): the init `0D` chunk `(0,0,0)` byte 0
+is the mode enum `0x00`–`0x0C` in the table order above (all 13 modes
+captured; each differs from `advanced_custom` in exactly this byte).
+`trace.decode_device_mode()` implements it (order = `choco.DEVICE_MODES`).
+
 ### 2f. TRS jack mode select (op `49`, selector `02 01`) — SOLVED
 
 How the TRS socket reads (expression pedal vs raw MIDI), independent of
@@ -197,6 +202,11 @@ Capture: both modes × 2 sweeps (`captures/09_05/midi_20260905_234141.log`).
 
 `trace.py` labels these `sw=trs` + the mode name.
 
+**Read-back** (solved 2026-09-07): chunk `(0,0,0)` byte 1 is `0x00` =
+`expression_pedal`, `0x02` = `trs_midi` (NOTE: differs from the live
+write codes `0x00`/`0x01` above). `trace.decode_trs_jack_mode()`.
+Untouched across all 13 device-mode captures.
+
 ### 2g. TRS jack reverse-polarity (op `49`, selector `02 5A`) — SOLVED
 
 Toggle for the TRS jack polarity reversal (same position on/off in the UI,
@@ -215,6 +225,18 @@ F0 00 32 09 49 00 00 00 02 5A 00 00 00 38 00 00 00 <STATE> <CHK1> <CHK2> F7
 Note byte 17 is **inverted** relative to intuition: `00` = on. Capture:
 `captures/09_05/midi_20260905_235754.log` (2 cycles, reproducible).
 `trace.py` labels these `sw=trs-pol polarity=on|off`.
+
+**Read-back: NOT PRESENT (2026-09-07).** Two init captures with
+pixel-verified opposite polarity states (`camp_pol_off` /
+`camp_pol_on`) are byte-identical across all 23 `0D` chunks — the
+polarity toggle is write-only as far as the init read-back goes (writes
+are ACKed; live `025A` traffic is the only wire source of truth).
+Write-byte ambiguity note: pixel-verified toggles show on->off sends
+`0x00`, off->on sends `0x01` — consistent with EITHER new-state
+semantics (`00`=OFF) or old-state semantics (`00`=ON, as correlated in
+2026-09-05); toggle sequences cannot decide. Kept `00`=ON per the
+operator note. Decisive test: absolute amidi `025A` write + TRS signal
+measurement.
 
 Device → host ACK:
 
@@ -314,7 +336,7 @@ Bank A slot 1 (offsets within `000000` payload):
 | 110 | data1 LSB | `(data1 & 1) << 6` (odd data1) |
 | 111 | data1 | `data1 >> 1` |
 | 112 | data2 | plain byte (stale/unused for pc) |
-| 1152…1153 | checksum | derived from config content |
+| 1152…1153 | checksum | derived from config content; hard constraint (2026-09-07): byte 1153 = `0x2E − 2·(byte 0) − (byte 1)` over the 13 device modes × 2 TRS modes (byte 1154 constant `0x01`) — the tail covers the header bytes linearly |
 
 Bank B slot 1 (offsets ~199–205, same chunk):
 
@@ -585,6 +607,7 @@ python3 trace.py captures/09_05/xxx.log   # offline re-analysis of an archive
 python3 choco.py set-message cc 5 64 80 --bank b   # drive a specific config
 python3 tools/sweep_a_full.py              # bank-A s3-7 value-spread campaign (writes /tmp/ba_map.json)
 python3 tools/anchor_feet.py [b c d]       # B/C/D BASE+HI anchors (per-variant foot re-select!)
+python3 tools/device_mode_sweep.py        # 13 device modes + TRS + polarity init captures
 python3 tools/rand_stored.py <foot> <bank> <seed> <n>  # stored-region random banks
 python3 tools/solve_bits.py [slots]        # viewed s2-7 per-bit solver
 python3 tools/solve_stored.py              # stored-slot solver (10 missing homes)

@@ -2,6 +2,26 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task — Device mode / TRS-jack / polarity in the init read-back (2026-09-07)
+
+- `tools/device_mode_sweep.py` (new): set-via-GUI + verify-via-get +
+  close/reopen capture per value; 17/17 OK (13 device modes, 2 TRS,
+  2 polarity); device restored to `advanced_custom`.
+- **Device mode: chunk `(0,0,0)` byte 0**, clean enum `0x00`–`0x0C` in GUI
+  radio order (`trace.decode_device_mode()`, order = `choco.DEVICE_MODES`).
+- **TRS mode: chunk `(0,0,0)` byte 1**, `0x00` = expression pedal,
+  `0x02` = trs_midi (differs from live write codes `0x00`/`0x01`)
+  (`trace.decode_trs_jack_mode()`). Gate: 15/15 parse == GUI-get.
+- **Polarity: NOT in the init read-back.** Pixel-opposite captures are
+  byte-identical across all 23 chunks; the `025A` write is ACKed but
+  unreadable back (live `trace.py` traffic is the only wire source).
+  Write-byte ambiguity documented (`00`=ON kept per the 2026-09-05
+  operator note; two toggles fit both readings — decisive test is an
+  absolute amidi write + TRS signal measurement).
+- Bonus checksum constraint: chunk tail byte 1153 =
+  `0x2E − 2·(byte 0) − (byte 1)` over all 13×2 states (spec §4.3) —
+  hard data point for the unsolved `0D` checksum.
+
 ## Task — Bank A slots 2-7 SOLVED + feet B/C/D stored mapping + spot suite (2026-09-07)
 
 ### Phase 0 — foot A bank A slots 2-7: fully decoded, rand-gated
