@@ -9,12 +9,20 @@ expected 10 messages) for pick_bits.py. Requires the GUI stack up
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import subprocess
 import time
 
-CAPTURES_DIR = "captures/09_06"
+
+def prior_capture(name: str) -> str:
+    """Existing capture file for a fill name (any date/prefix), or ""."""
+    pat = f"captures/*/*_camp_{name}.log"
+    hits = (p for p in glob.glob(pat) if os.path.getsize(p) > 0)
+    return min(hits, default="")
+
+
 MAP_PATH = "/tmp/ba_map.json"
 
 BASE = [
@@ -41,7 +49,7 @@ def spec(t: str, ch: int, d1: int, d2: int) -> str:
 def run_one(name: str, msgs: list[tuple]) -> bool:
     for attempt in range(3):
         r = subprocess.run(
-            ["python3", "camp2.py", "a", name, *(spec(*m) for m in msgs)],
+            ["python3", "tools/camp2.py", "a", name, *(spec(*m) for m in msgs)],
             capture_output=True,
             text=True,
             check=False,
@@ -124,8 +132,7 @@ def main() -> None:
     variants.append(("s7ch16", m))
 
     for name, msgs in variants:
-        path = f"{CAPTURES_DIR}/camp_{name}.log"
-        if os.path.exists(path) and os.path.getsize(path) > 0:
+        if prior_capture(name):
             mapping[f"camp_{name}.log"] = [list(m) for m in msgs]
             print(f"  SKIP {name} (already on disk)")
             continue

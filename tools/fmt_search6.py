@@ -14,7 +14,7 @@ import os
 import sys
 
 sys.path.insert(0, ".")
-from analyze_captures import parse_capture
+from analyze_captures import find_capture, parse_capture
 from fmt_search import BASE_A, BASE_B, FMTS
 
 # stored homes: (foot, bank) -> (chunk addr, search lo, search hi)
@@ -68,11 +68,9 @@ def main() -> None:
         addr, lo, hi_off = HOMES[(foot, bank)]
         chunks = []
         for name, _ in grp:
-            for d in ("captures/09_06", "captures/09_05"):
-                p = payloads(f"{d}/{name}").get(addr, b"")
-                if p:
-                    chunks.append(p)
-                    break
+            p = payloads(find_capture(name)).get(addr, b"")
+            if p:
+                chunks.append(p)
         if len(chunks) != len(grp):
             print(f"   only {len(chunks)}/{len(grp)} chunks parsed, skipping")
             continue

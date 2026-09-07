@@ -10,13 +10,21 @@ Requires the GUI stack up; run once per foot in the foreground.
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import subprocess
 import sys
 import time
 
-CAPTURES_DIR = "captures/09_06"
+
+def prior_capture(name: str) -> str:
+    """Existing capture file for a fill name (any date/prefix), or ""."""
+    pat = f"captures/*/*_camp_{name}.log"
+    hits = (p for p in glob.glob(pat) if os.path.getsize(p) > 0)
+    return min(hits, default="")
+
+
 MAP_PATH = "/tmp/anchor_map.json"
 
 BASE_A = [
@@ -124,7 +132,7 @@ def ensure_foot(foot: str) -> bool:
 def run_one(name: str, bank: str, msgs: list[tuple]) -> bool:
     for attempt in range(3):
         r = subprocess.run(
-            ["python3", "camp2.py", bank, name, *(spec(*m) for m in msgs)],
+            ["python3", "tools/camp2.py", bank, name, *(spec(*m) for m in msgs)],
             capture_output=True,
             text=True,
             check=False,
@@ -158,8 +166,7 @@ def main() -> None:
             if not ensure_foot(foot):
                 print(f"  FAILED to select foot {foot.upper()}, skipping {name}")
                 continue
-            path = f"{CAPTURES_DIR}/camp_{name}.log"
-            if os.path.exists(path) and os.path.getsize(path) > 0:
+            if prior_capture(name):
                 mapping[f"camp_{name}.log"] = [list(m) for m in msgs]
                 print(f"  SKIP {name} (already on disk)")
                 continue

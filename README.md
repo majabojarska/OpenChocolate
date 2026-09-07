@@ -145,7 +145,8 @@ title bar, shifting every click a bit down/right. If so, either:
 `midi.py` provides a context manager that runs `aseqdump` on the matching
 ALSA sequencer ports while a choco action sequence executes. Events stream
 live to the console (prefixed per port) and are teed to a timestamped log
-file under `captures/<MM_DD>/` (`captures/09_05/midi_20260905_190017.log`).
+file under `captures/YYYY-MM-DD/` (e.g.
+`captures/2026-09-05/2026-09-05_19-00-17_midi_20260905_190017.log`).
 
 ```python
 from midi import record
@@ -196,7 +197,7 @@ python3 trace.py midi_xxx.log            # analyze an existing capture log
   stdout, status lines to stderr, so `1> trace.txt` captures just the decode).
 
 If you *do* want a saved capture, use `record()` (writes
-`captures/<MM_DD>/midi_<timestamp>.log` with a `# port:` header; `trace.py
+`captures/YYYY-MM-DD/YYYY-MM-DD_hh-mm-ss_midi.log` with a `# port:` header; `trace.py
 <path>` analyzes it later).
 
 ### First observations (2026-09-05)

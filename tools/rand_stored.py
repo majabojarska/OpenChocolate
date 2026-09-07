@@ -9,6 +9,7 @@ Usage: python3 rand_stored.py <foot> <bank> <seed> <count>."""
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import sys
@@ -17,7 +18,14 @@ sys.path.insert(0, ".")
 from anchor_feet import ensure_foot, run_one
 from rand_verify import gen_bank
 
-CAPTURES_DIR = "captures/09_06"
+
+def prior_capture(name: str) -> str:
+    """Existing capture file for a fill name (any date/prefix), or ""."""
+    pat = f"captures/*/*_camp_{name}.log"
+    hits = (p for p in glob.glob(pat) if os.path.getsize(p) > 0)
+    return min(hits, default="")
+
+
 MAP_PATH = "/tmp/stored_map.json"
 
 
@@ -34,8 +42,7 @@ def main() -> None:
     for n in range(count):
         msgs = gen_bank(rng, bank)
         name = f"{prefix}_{n}"
-        path = f"{CAPTURES_DIR}/camp_{name}.log"
-        if os.path.exists(path) and os.path.getsize(path) > 0:
+        if prior_capture(name):
             mapping[f"camp_{name}.log"] = [list(m) for m in msgs]
             print(f"  SKIP {name} (already on disk)", flush=True)
             continue

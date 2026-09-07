@@ -36,7 +36,7 @@ EncodedPort = tuple[str, str, str]  # (port id "N:M", client name, port name)
 
 DEFAULT_PATTERNS = ("WINE midi driver",)
 
-CAPTURES_DIR = "captures"  # recordings live under captures/<MM_DD>/
+CAPTURES_DIR = "captures"  # recordings live under captures/YYYY-MM-DD/
 
 _LINE_RE = re.compile(r"^\s*(\d+:\d+)\s+(.*)\s{2,}(.*)$")
 
@@ -79,11 +79,11 @@ def _pump(proc: subprocess.Popen, port: str, log, tee: bool, counts: list[int]) 
 
 
 def default_log_path() -> str:
-    """Default capture path: captures/<MM_DD>/midi_<YYYYmmdd_HHMMSS>.log."""
+    """Default capture path: captures/YYYY-MM-DD/YYYY-MM-DD_hh-mm-ss_midi.log."""
     now = dt.datetime.now().astimezone()
-    return os.path.join(
-        CAPTURES_DIR, now.strftime("%m_%d"), f"midi_{now:%Y%m%d_%H%M%S}.log"
-    )
+    day = now.strftime("%Y-%m-%d")
+    ts = now.strftime("%Y-%m-%d_%H-%M-%S")
+    return os.path.join(CAPTURES_DIR, day, f"{ts}_midi.log")
 
 
 def _spawn_tap(
@@ -118,7 +118,7 @@ def record(
     the `with` block.
 
     Streams each event live (one line per port, prefixed) and tees it to
-    `log_file` (default: `captures/<MM_DD>/midi_<timestamp>.log`). If no
+    `log_file` (default: `captures/YYYY-MM-DD/YYYY-MM-DD_hh-mm-ss_midi.log`). If no
     port matches the patterns, raises RuntimeError listing what's available.
 
     `rescan_after`: after this many seconds, re-resolve the patterns and

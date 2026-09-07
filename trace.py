@@ -92,7 +92,7 @@ DEVICE_MODE_BYTE_TO_NAME = {
 }
 
 # TRS jack mode byte (index 17) <-> name (op 0x49, selector 02 01).
-# From captures/09_05/midi_20260905_234141.log.
+# From captures/2026-09-05/2026-09-05_23-41-41_midi_20260905_234141.log.
 TRS_JACK_MODE_BYTE_TO_NAME = {
     0x00: "expression_pedal",
     0x01: "trs_midi",

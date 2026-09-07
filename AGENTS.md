@@ -18,9 +18,9 @@
 
 ## Project layout (context)
 
-Root = product: the harness, decoders, and capture engine.
-`tools/` = tangential analysis/campaign/verify scripts (run from repo
-root — they resolve imports and `captures/` paths relative to it).
+Root = product: the harness and live decoders. `tools/` = capture engine
+plus tangential analysis/campaign/verify scripts (run from repo root —
+they resolve imports and `captures/` paths relative to it).
 
 - `choco.py` — CLI/GUI harness driving the M-Vave editor windows
   (xdotool/wmctrl), importable actions.
@@ -28,10 +28,10 @@ root — they resolve imports and `captures/` paths relative to it).
   to `captures/<MM_DD>/`).
 - `trace.py` — live/offline SysEx decoder (colors app->/pdl->, decodes the
   protocol: read_req/read_resp/discovery/mode/data2).
-- `analyze_captures.py` — capture parser shared by everything in `tools/`.
-- `camp2.py` — GUI fill + close/reopen capture workhorse used by the
-  campaign drivers in `tools/`.
-- `decode_stored.py` — foot B/C/D stored-region bank decoders.
+- `tools/` — capture engine, decoders, and supporting scripts, by role:
+  - engine: `camp2.py` (GUI fill + close/reopen capture workhorse),
+    `analyze_captures.py` (capture parser shared by everything in `tools/`),
+    `decode_stored.py` (foot B/C/D stored-region bank decoders)
 - `tools/` — one-shot or supporting scripts, by role:
   - campaigns: `sweep_a_full.py`, `anchor_feet.py`, `rand_stored.py`
   - solvers/search: `solve_bits.py`, `solve_stored.py`, `fmt_search.py`,
@@ -44,6 +44,19 @@ root — they resolve imports and `captures/` paths relative to it).
 - `TASKS/` — `TODO.md` (next task) and `FINISHED.md` (completed tasks,
   most recent first). When you finish a task, move it from TODO to
   FINISHED.
+
+## Capture files (conventions — follow for all new captures)
+
+- Location: `captures/YYYY-MM-DD/` (local date when the capture starts).
+- Filename: `YYYY-MM-DD_hh-mm-ss_<kind>[_<name>].log` — `midi.py` writes
+  `<ts>_midi.log`, `camp2.py` writes `<ts>_camp_<name>.log`.
+- Always run tools from the repo root; capture code resolves `captures/`
+  relative to cwd (`midi.default_log_path()`, `camp2.capture_path()`).
+- Readers: never hardcode dated dirs — glob `captures/*/*_<suffix>` or
+  use `analyze_captures.find_capture()` / `logical_name()` (strips the
+  timestamp prefix for name parsers).
+- Pre-2026-09-08 docs reference old paths (`captures/09_05/...`,
+  unprefixed names); resolve by filename suffix.
 
 ## Working with the GUI harness
 

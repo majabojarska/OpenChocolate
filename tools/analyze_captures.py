@@ -9,8 +9,14 @@ Usage:
 
 from __future__ import annotations
 
+import glob
 import re
 import sys
+
+CAPTURES_ROOT = "captures"
+
+# timestamp prefix on migrated capture files: YYYY-MM-DD_hh-mm-ss_
+_TS_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_")
 
 _EVENT_RE = re.compile(r"^\s*(\d+:\d+)\s+(.*)$")
 _SPLIT_RE = re.compile(r"\s{2,}")
@@ -39,6 +45,29 @@ def parse_capture(path: str) -> list[bytes]:
     if cur:
         sysex.append(bytes(cur))
     return sysex
+
+
+def find_capture(filename: str) -> str:
+    """Resolve a capture file under captures/ (any dated subdir).
+
+    Accepts the bare filename with or without its timestamp prefix:
+    exact path, then captures/*/<filename>, then captures/*/*_<filename>.
+    Returns "" if nothing matches. Run tools from the repo root.
+    """
+    import os
+
+    if os.path.exists(filename):
+        return filename
+    for pat in (f"{CAPTURES_ROOT}/*/{filename}", f"{CAPTURES_ROOT}/*/*_{filename}"):
+        hits = sorted(glob.glob(pat))
+        if hits:
+            return hits[0]
+    return ""
+
+
+def logical_name(path: str) -> str:
+    """Capture filename without its timestamp prefix (for name parsers)."""
+    return _TS_PREFIX_RE.sub("", path.split("/")[-1])
 
 
 def analyze(path: str) -> None:

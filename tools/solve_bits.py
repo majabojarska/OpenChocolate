@@ -19,7 +19,7 @@ import os
 import sys
 
 sys.path.insert(0, ".")
-from analyze_captures import parse_capture
+from analyze_captures import find_capture, logical_name, parse_capture
 from pick_bits import expected_bank as legacy_expected
 
 ORDER = ["pc", "cc", "noteon", "noteoff"]
@@ -96,8 +96,8 @@ def collect() -> dict[str, list[tuple]]:
         msgs = [list(m) for m in BASE]
         msgs[5] = ["noteon", 7, 21, v]
         out[f"camp_a6d2v{v}.log"] = [tuple(m) for m in msgs]
-    for path in sorted(glob.glob("captures/09_06/camp_b[234567]_*.log")):
-        name = path.split("/")[-1]
+    for path in sorted(glob.glob("captures/*/*_camp_b[234567]_*.log")):
+        name = logical_name(path)
         bank = legacy_expected(name)
         if bank is not None:
             out[name] = bank
@@ -193,11 +193,9 @@ def main() -> None:
     print(f"loaded {len(expected)} captures with known banks")
     chunks = {}
     for name in expected:
-        for d in ("captures/09_06", "captures/09_05"):
-            p = chunk_of(f"{d}/{name}")
-            if p:
-                chunks[name] = p
-                break
+        p = chunk_of(find_capture(name))
+        if p:
+            chunks[name] = p
     print(f"parsed {len(chunks)} chunks")
     for sidx in want:
         start, nb = SPANS[sidx]

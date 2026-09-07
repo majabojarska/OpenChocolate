@@ -2,7 +2,7 @@
 """Fill bank B via the proven CLI approach and capture read-backs.
 
 Each state: remove-all, add N slots, set each. Then close+reopen under
-recording and save captures/09_06/camp_<name>.log.
+recording and save captures/YYYY-MM-DD/YYYY-MM-DD_hh-mm-ss_camp_<name>.log.
 """
 
 from __future__ import annotations
@@ -11,7 +11,14 @@ import subprocess
 import sys
 import time
 
-CAPTURES_DIR = "captures/09_06"
+CAPTURES_ROOT = "captures"
+
+
+def capture_path(name: str) -> str:
+    """Capture path for a fill: captures/YYYY-MM-DD/<ts>_camp_<name>.log."""
+    day = time.strftime("%Y-%m-%d")
+    ts = time.strftime("%Y-%m-%d_%H-%M-%S")
+    return f"{CAPTURES_ROOT}/{day}/{ts}_camp_{name}.log"
 
 
 def cli(*args: str) -> int:
@@ -71,7 +78,7 @@ def fill(bank: str, msgs: list[tuple[str, int, int, int]]) -> bool:
 def capture(name: str) -> str | None:
     if cli("state"):
         return None
-    path = f"{CAPTURES_DIR}/camp_{name}.log"
+    path = capture_path(name)
     code = f"""
 from midi import record
 from choco import close_footctrlplus, start_foot_ctrl_plus, open_windows, top_of_stack

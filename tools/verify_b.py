@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 
 sys.path.insert(0, ".")
-from analyze_captures import parse_capture
+from analyze_captures import find_capture, parse_capture
 from trace import decode_b_slots
 
 # capture -> expected 10-slot bank B messages (None = not a full-10 slot run)
@@ -84,7 +84,7 @@ def main() -> None:
     bad = 0
     n_slots = 0
     for name, expected in EXPECT.items():
-        chunk = chunk_of(f"captures/09_06/{name}.log")
+        chunk = chunk_of(find_capture(f"{name}.log"))
         if not chunk:
             print(f"{name}: NO CHUNK")
             continue

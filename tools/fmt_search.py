@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 
 sys.path.insert(0, ".")
-from analyze_captures import parse_capture
+from analyze_captures import find_capture, parse_capture
 
 BA = {"pc": 0, "cc": 1, "noteon": 2, "noteoff": 3}
 TA = {"pc": 0, "cc": 2, "noteon": 4, "noteoff": 6}
@@ -333,11 +333,11 @@ def main() -> None:
         for bank in ("a", "b"):
             sfx = {"a": "base", "b": "base"}[bank]
             caps[(foot, bank, "base")] = payloads(
-                f"captures/09_06/camp_f{foot}_{bank}_{sfx}.log"
+                find_capture(f"camp_f{foot}_{bank}_{sfx}.log")
             )
             sfx = "hi"
             caps[(foot, bank, "hi")] = payloads(
-                f"captures/09_06/camp_f{foot}_{bank}_{sfx}.log"
+                find_capture(f"camp_f{foot}_{bank}_{sfx}.log")
             )
     for (foot, bank), (addr, lo, hi_off) in HOMES.items():
         base_msgs = BASE_A if bank == "a" else BASE_B

@@ -16,7 +16,7 @@ K per address family:
   45 discovery       -> 0x136  (single byte 7F)
   other/unknown      -> 0x200  (X = K - S)
 
-Runs over every captured message in captures/09_05 and captures/09_06,
+Runs over every captured message under captures/ (all dated subdirs),
 plus the config-page writes (09 41 40) as a bonus test.
 """
 
@@ -51,9 +51,7 @@ def split14(v: int) -> tuple[int, int]:
 
 
 def main() -> None:
-    paths = sorted(glob.glob("captures/09_05/*.log")) + sorted(
-        glob.glob("captures/09_06/*.log")
-    )
+    paths = sorted(glob.glob("captures/*/*.log"))
     msg_kinds = {
         "09 49": [],
         "01 08": [],

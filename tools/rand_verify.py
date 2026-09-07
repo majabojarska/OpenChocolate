@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Random bank verification (task requirement): fill bank B with 10 random
 messages (double-bank mode active), capture the 0D read-back, decode, and
-compare byte-exact. Saves captures/09_06/rand_<n>.log and prints per-slot
-results."""
+compare byte-exact. Saves captures/YYYY-MM-DD/<ts>_camp_rand_<n>.log and
+prints per-slot results."""
 
 from __future__ import annotations
 
 import random
 import subprocess
 import sys
+
+sys.path.insert(0, ".")
+
+from analyze_captures import find_capture
 
 TYPE_POOL = ["pc", "cc", "noteon", "noteoff"]
 
@@ -46,7 +50,7 @@ def main() -> None:
         name = f"rand_{bank}_{seed}_{n}"
         args = [spec(*m) for m in bank_msgs]
         r = subprocess.run(
-            ["python3", "camp2.py", bank, name, *args],
+            ["python3", "tools/camp2.py", bank, name, *args],
             capture_output=True,
             text=True,
             check=False,
@@ -57,9 +61,8 @@ def main() -> None:
                 f"{r.stdout.strip()[-80:]} {r.stderr.strip()[-80:]}"
             )
             continue
-        path = f"captures/09_06/camp_{name}.log"
+        path = find_capture(f"camp_{name}.log")
 
-        sys.path.insert(0, ".")
         from analyze_captures import parse_capture
         from trace import decode_b_slots
 

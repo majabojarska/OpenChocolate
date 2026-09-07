@@ -15,7 +15,7 @@ import os
 import sys
 
 sys.path.insert(0, ".")
-from analyze_captures import parse_capture
+from analyze_captures import find_capture, parse_capture
 from solve_bits import collect as collect_viewed  # noqa: F401 (reference)
 from solve_bits import solve_field
 
@@ -76,11 +76,9 @@ def main() -> None:
         hdr0 = f"== foot {foot} bank {bank.upper()} slot {slot}: "
         chunks = []
         for name, _ in grp:
-            for d in ("captures/09_06", "captures/09_05"):
-                p = payloads(f"{d}/{name}").get(addr, b"")
-                if p:
-                    chunks.append(p)
-                    break
+            p = payloads(find_capture(name)).get(addr, b"")
+            if p:
+                chunks.append(p)
         if len(chunks) != len(grp):
             print(hdr0 + f"short {len(chunks)}/{len(grp)}, skip")
             continue

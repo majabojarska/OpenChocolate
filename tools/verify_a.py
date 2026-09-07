@@ -7,7 +7,7 @@ import glob
 import sys
 
 sys.path.insert(0, ".")
-from analyze_captures import parse_capture
+from analyze_captures import logical_name, parse_capture
 from trace import decode_bank_a_slots
 
 BASE = [
@@ -75,8 +75,8 @@ def chunk_of(path: str) -> bytes:
 def main() -> None:
     ok = bad = 0
     slots_bad = 0
-    for path in sorted(glob.glob("captures/09_06/camp_a*.log")):
-        name = path.split("/")[-1].replace(".log", "")
+    for path in sorted(glob.glob("captures/*/*_camp_a*.log")):
+        name = logical_name(path).replace(".log", "")
         exp = expected_for(name)
         if exp is None:
             continue

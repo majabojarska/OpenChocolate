@@ -8,7 +8,7 @@ import itertools
 import sys
 
 sys.path.insert(0, ".")
-from analyze_captures import parse_capture
+from analyze_captures import logical_name, parse_capture
 
 ORDER = ["pc", "cc", "noteon", "noteoff"]
 
@@ -94,8 +94,8 @@ def perbit_positions(samples, fi, nbits):
 
 def main() -> None:
     chunks = {}
-    for path in glob.glob("captures/09_06/camp_a*.log") + glob.glob(
-        "captures/09_06/camp_b[234567]_*.log"
+    for path in glob.glob("captures/*/*_camp_a*.log") + glob.glob(
+        "captures/*/*_camp_b[234567]_*.log"
     ):
         for b in parse_capture(path):
             if (
@@ -113,7 +113,7 @@ def main() -> None:
     for sidx, (start, nb) in SLOT.items():
         samples = []
         for path, c in chunks.items():
-            name = path.split("/")[-1].replace(".log", "")
+            name = logical_name(path).replace(".log", "")
             bank = expected_bank(name)
             if bank is None:
                 continue
