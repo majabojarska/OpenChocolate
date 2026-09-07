@@ -67,3 +67,10 @@ they resolve imports and `captures/` paths relative to it).
   4. Prove the write path with a stateless toggle: `python3 choco.py trs-jack-reverse-polarity get` (note value) → `toggle` → `get` (must flip) → `toggle` → `get` (must flip back). Both flips confirm app→device writes; the round-trip restores state.
 - If mouse clicks are not effective, stop and ask the operator to check for a "screen control" permission popup.
 A missing permission could exhibit as `FootCtrlPlus` not starting after clicking on `CubeSuite`.
+- Click coordinates are per-window and origin conventions differ:
+  `FootCtrlPlus` main-window `COORDS` are client-area coords, but modal
+dialogs (file picker) report an origin that includes the ~30px title
+  bar — add +30 to screenshot-measured Y for dialog coords. `COORDS`
+  already stores working per-window values; if clicks land offset, use
+  `--absolute` (converts via `wmctrl -lG`) or re-measure from a fresh
+  screenshot.

@@ -34,7 +34,7 @@ from enum import Enum
 # ---------------------------------------------------------------------------
 # Window stack, topmost first: a window steals focus from those below it.
 # ---------------------------------------------------------------------------
-STACK = ["midi_edit", "footctrlplus", "launchpad"]
+STACK = ["file_picker", "midi_edit", "footctrlplus", "launchpad"]
 
 # Title regexes matched against the title field of `wmctrl -l`.
 WINDOW_TITLES = {
@@ -43,6 +43,8 @@ WINDOW_TITLES = {
     "footctrlplus": re.compile(r"^FootCtrlPlus$"),
     # the "midi code edit" dialog window (titled just "CubeSuite")
     "midi_edit": re.compile(r"^CubeSuite$"),
+    # preset file picker dialogs (modal over FootCtrlPlus)
+    "file_picker": re.compile(r"^(Export|Import) preset$"),
 }
 
 # Footswitch mode radio buttons, one set per foot switch (radio group:
@@ -114,6 +116,19 @@ COORDS = {
     # window close buttons (title bar)
     "close_footctrlplus": (1250, 17),
     "close_launchpad": (648, 13),
+    # preset Export/Import buttons on FootCtrlPlus (client coords)
+    "export_button": (55, 80),
+    "import_button": (148, 80),
+    # file picker dialog (FRAME coords: this dialog's --window origin
+    # includes the ~30px title bar, unlike FootCtrlPlus client coords).
+    # Navigation always goes through the tree (focus + type-ahead) so it
+    # works regardless of the tree's expand/scroll state or the picker's
+    # remembered location.
+    "picker_tree": (70, 78),
+    "picker_filename": (340, 480),
+    "picker_save": (565, 535),
+    "picker_open": (565, 535),
+    "picker_cancel": (625, 535),
 }
 COORDS.update({name: (x, y) for name, (x, y, _) in FOOTSWITCH_MODES.items()})
 
@@ -138,6 +153,13 @@ ACTION_WINDOW = {
     "open_edit": "footctrlplus",
     "close_footctrlplus": "footctrlplus",
     "close_launchpad": "launchpad",
+    "export_button": "footctrlplus",
+    "import_button": "footctrlplus",
+    "picker_tree": "file_picker",
+    "picker_filename": "file_picker",
+    "picker_save": "file_picker",
+    "picker_open": "file_picker",
+    "picker_cancel": "file_picker",
     "edit_channel": "midi_edit",
     "edit_type": "midi_edit",
     "edit_data1": "midi_edit",
@@ -166,6 +188,13 @@ DISPLAY = {
     "open_edit": "open-edit",
     "close_footctrlplus": "close-footctrlplus",
     "close_launchpad": "close-launchpad",
+    "export_button": "export-button",
+    "import_button": "import-button",
+    "picker_tree": "picker-tree",
+    "picker_filename": "picker-filename",
+    "picker_save": "picker-save",
+    "picker_open": "picker-open",
+    "picker_cancel": "picker-cancel",
     "edit_channel": "edit-channel",
     "edit_type": "edit-type",
     "edit_data1": "edit-data1",
@@ -262,6 +291,12 @@ TYPE_RESET_UP_ARROWS = 5
 BOTTLES_APP = "com.usebottles.bottles"
 BOTTLES_ENV = "Chocolate"
 CUBESUITE_WIN_PATH = r"C:\users\maja\Desktop\CubeSuite\CubeSuite.exe"
+
+# Wine prefix + preset dir (Linux side) for import/export.
+BOTTLES_PREFIX = os.path.expanduser(
+    "~/.var/app/com.usebottles.bottles/data/bottles/bottles/Chocolate"
+)
+PRESET_DIR = os.path.join(BOTTLES_PREFIX, "drive_c/users/maja/Documents")
 
 # Bank B: every foot switch has bank A and bank B. In bank B view, the
 # FootCtrlPlus event-list controls shift +350px on X (midi edit dialog is
@@ -1061,11 +1096,10 @@ def read_bank_exact(bank: str = "a") -> list[dict] | None:
     """Byte-exact bank reader via the `0D` register-read protocol.
 
     Close+reopen FootCtrlPlus under a capture, rebuild the config chunk
-    at address 000000 from the device's `0D 49` responses, and decode the
-    slot-1 record (channel/type/data1/data2) from it. Currently decodes
-    slot 1 only (single verified record layout); multi-slot layout is a
-    known partial (spec). Returns a list with the decoded message(s), or
-    None on capture/decode failure.
+    at address 000000 from the device's `0D 49` responses, and decode all
+    10 slots (`trace.decode_bank_a_slots` / `trace.decode_b_slots`).
+    Returns the list of decoded messages, or None on capture failure.
+    Empty (all-zero) records are skipped by the bank-B decoder.
 
     Requires the app to be open (close/reopen happens internally).
     """
@@ -1146,12 +1180,9 @@ def read_bank_exact(bank: str = "a") -> list[dict] | None:
 
                     msgs = decode_b_slots(p)
                 else:
-                    # Bank A slots 1-7 layouts are intact, but slots 8-10
-                    # were derived from buggy-shifted reads and need
-                    # re-basing on the fixed parser; decode slot 1 only.
-                    from trace import decode_slot1
+                    from trace import decode_bank_a_slots
 
-                    msgs = [decode_slot1(p, "a")]
+                    msgs = decode_bank_a_slots(p)
                 for i, msg in enumerate(msgs):
                     print(
                         f"bank {bank.upper()} slot {i + 1} (exact): "
@@ -1181,6 +1212,204 @@ def close_footctrlplus() -> int:
 def close_launchpad() -> int:
     """Close the CubeSuite launchpad via its close button (exits the app)."""
     return cmd_close_with_button("close_launchpad")
+
+
+def sanitize_preset_name(name: str) -> str | None:
+    """Clean a preset name for the file picker; None if unusable.
+
+    Strips one .fcp suffix (the app appends it); rejects empties and
+    path separators. Stick to [A-Za-z0-9_.-] (xdotool typing).
+    """
+    base = name.strip()
+    if base.lower().endswith(".fcp"):
+        base = base[: -len(".fcp")].strip()
+    if not base or "/" in base or "\\" in base:
+        return None
+    return base
+
+
+def preset_path(name: str) -> str:
+    """Linux-side path of a preset in the prefix Documents dir."""
+    return os.path.join(PRESET_DIR, f"{name}.fcp")
+
+
+def dismiss_message(timeout: float = 8.0) -> bool:
+    """Dismiss a transient `Message` dialog (e.g. Export/Import success).
+
+    Activates it and presses Return; True once it is gone (re-checked
+    after a settle, the dialog can arrive late). False on timeout.
+    """
+    deadline = time.time() + timeout
+    calm_until = 0.0
+    while time.time() < deadline:
+        proc = _run(["wmctrl", "-l"])
+        wid = None
+        for line in proc.stdout.splitlines():
+            fields = line.split(None, 3)
+            if len(fields) >= 4 and fields[3] == "Message":
+                wid = fields[0]
+                break
+        if wid is None:
+            if calm_until == 0.0:
+                calm_until = time.time() + 2.0
+            elif time.time() >= calm_until:
+                return True
+            time.sleep(0.5)
+            continue
+        calm_until = 0.0
+        _run(["xdotool", "windowactivate", "--sync", wid])
+        _run(["xdotool", "key", "Return"])
+        time.sleep(0.5)
+    return False
+
+
+def wait_for_picker(timeout: float = 10.0) -> str | None:
+    """Wait for the Export/Import preset picker; return its window id."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        wid = open_windows().get("file_picker")
+        if wid is not None:
+            return wid
+        time.sleep(0.25)
+    return None
+
+
+def picker_goto_documents() -> int:
+    """Select Documents in the picker tree (always, both modes).
+
+    The picker remembers its last location and the tree expand/scroll
+    state varies, so fixed Documents-row coords are fragile. Instead:
+    focus the tree (stable Favorites row) and type-ahead "Documents",
+    which selects + navigates regardless of state.
+    """
+    wid = require("picker_tree")
+    if wid is None:
+        return 1
+    x, y = COORDS["picker_tree"]
+    click(wid, x, y)
+    time.sleep(0.5)
+    _run(["xdotool", "type", "--delay", "100", "Documents"])
+    time.sleep(1.5)
+    return 0
+
+
+def picker_set_filename(name: str) -> int:
+    """Focus the picker File name box and type `name`.
+
+    Double-taps with a gap: the file-view refresh after navigating can
+    steal focus from a first click, so click, let it settle, click again,
+    then clear+type (single-click focus proved flaky in recon).
+    """
+    wid = require("picker_filename")
+    if wid is None:
+        return 1
+    x, y = COORDS["picker_filename"]
+    click(wid, x, y, clicks=2)
+    time.sleep(2.0)
+    click(wid, x, y, clicks=2)
+    _clear_and_type_text(name)
+    return 0
+
+
+def _clear_and_type_text(value: str) -> None:
+    """Clear a text field and type an arbitrary string (filename box)."""
+    time.sleep(0.3)
+    _run(["xdotool", "key", "--repeat", str(CLEAR_KEYPRESSES), "BackSpace"])
+    time.sleep(0.1)
+    _run(["xdotool", "type", "--delay", "150", value])
+
+
+def picker_confirm() -> int:
+    """Press Return (Save/Open) in the picker; wait for it to close."""
+    wid = open_windows().get("file_picker")
+    if wid is None:
+        print("picker-confirm: no file picker is open", file=sys.stderr)
+        return 1
+    _run(["xdotool", "windowactivate", "--sync", wid])
+    _run(["xdotool", "key", "Return"])
+    deadline = time.time() + 10.0
+    while time.time() < deadline:
+        if open_windows().get("file_picker") is None:
+            return 0
+        time.sleep(0.25)
+    print("picker-confirm: picker still open", file=sys.stderr)
+    return 1
+
+
+def export_preset(name: str) -> int:
+    """Export the device preset to Documents as <name>.fcp.
+
+    Removes a same-named file first (avoids an overwrite prompt), clicks
+    through Export picker (Documents + filename + Save), dismisses the
+    success message, and verifies the file from the Linux side.
+    """
+    clean = sanitize_preset_name(name)
+    if clean is None:
+        print(f"export-preset: unusable name {name!r}", file=sys.stderr)
+        return 1
+    target = preset_path(clean)
+    if os.path.exists(target):
+        os.remove(target)
+    if cmd_click("export_button", False):
+        return 1
+    if wait_for_picker() is None:
+        print("export-preset: picker did not open", file=sys.stderr)
+        return 1
+    if picker_goto_documents():
+        return 1
+    if picker_set_filename(clean):
+        return 1
+    time.sleep(0.5)
+    if picker_confirm():
+        return 1
+    if not dismiss_message():
+        print("export-preset: success message stuck", file=sys.stderr)
+        return 1
+    # Wine flushes the file with a delay; poll for it.
+    deadline = time.time() + 10.0
+    while time.time() < deadline:
+        if os.path.exists(target) and os.path.getsize(target) > 0:
+            break
+        time.sleep(0.5)
+    if os.path.exists(target) and os.path.getsize(target) > 0:
+        print(f"export-preset: saved -> {target} [{os.path.getsize(target)} bytes]")
+        return 0
+    print(f"export-preset: file missing after save: {target}", file=sys.stderr)
+    return 1
+
+
+def import_preset(name: str) -> int:
+    """Import <name>.fcp from Documents via the Import picker.
+
+    Fails fast if the file is missing on the Linux side. Verifies the
+    dialog closes and the success message is dismissed; device state is
+    caller-verified (e.g. read-bank-exact).
+    """
+    clean = sanitize_preset_name(name)
+    if clean is None:
+        print(f"import-preset: unusable name {name!r}", file=sys.stderr)
+        return 1
+    source = preset_path(clean)
+    if not os.path.exists(source):
+        print(f"import-preset: no such preset: {source}", file=sys.stderr)
+        return 1
+    if cmd_click("import_button", False):
+        return 1
+    if wait_for_picker() is None:
+        print("import-preset: picker did not open", file=sys.stderr)
+        return 1
+    if picker_goto_documents():
+        return 1
+    if picker_set_filename(clean):
+        return 1
+    time.sleep(0.5)
+    if picker_confirm():
+        return 1
+    if not dismiss_message():
+        print("import-preset: success message stuck", file=sys.stderr)
+        return 1
+    print(f"import-preset: imported {source}")
+    return 0
 
 
 def start_cubesuite(timeout: float = 30.0) -> int:
@@ -1412,6 +1641,16 @@ def main(argv=None) -> int:
         help="close the CubeSuite launchpad via its title-bar close button "
         "(exits the app)",
     )
+    p_export = sub.add_parser(
+        "export-preset",
+        help="export the device preset to Documents as <name>.fcp",
+    )
+    p_export.add_argument("name")
+    p_import = sub.add_parser(
+        "import-preset",
+        help="import <name>.fcp from Documents",
+    )
+    p_import.add_argument("name")
     sub.add_parser(
         "start-cubesuite",
         help="start CubeSuite via Bottles (env Chocolate) and wait for the launchpad",
@@ -1562,6 +1801,10 @@ def main(argv=None) -> int:
         return close_footctrlplus()
     if args.command == "close-launchpad":
         return close_launchpad()
+    if args.command == "export-preset":
+        return export_preset(args.name)
+    if args.command == "import-preset":
+        return import_preset(args.name)
     if args.command == "start-cubesuite":
         return start_cubesuite()
     if args.command == "open-edit":

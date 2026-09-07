@@ -2,6 +2,29 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task 1 — Import/export device presets in the `choco.py` harness (2026-09-07)
+
+- `choco.py export-preset <name>` / `import-preset <name>`: new
+  `file_picker` window (`Export preset`/`Import preset` titles, top of
+  `STACK`), preset buttons + picker coords, `BOTTLES_PREFIX`/`PRESET_DIR`
+  constants, `sanitize_preset_name`, `dismiss_message`, filename flow
+  with double-tap focus + settle (single-click focus proved flaky),
+  confirm via Return, Linux-side verification.
+- Key recon findings: picker `--window` clicks need +30px title-bar
+  frame coords (unlike FootCtrlPlus client coords); Documents navigation
+  must be explicit every time (picker remembers location) via tree-focus
+  + type-ahead (fixed row coords are state-fragile); wine flushes the
+  file with a delay (poll, don't single-check); success `Message`
+  dialogs can arrive late (re-check after calm).
+- Gates: export lands deterministic fixed-size (23646 B) `.FCP`;
+  import restores full banks end-to-end (3/3 slots incl. ch16/d127);
+  export→import→export round-trips byte-identical; bad-name/missing
+  fail fast (exit 1). `e2e04.fcp` kept in prefix Documents as reference.
+- Incidental fixes: `read-bank-exact a` decoded slot 1 ONLY (stale
+  comment) — now full `decode_bank_a_slots`; this also retracts two
+  false findings the broken tool produced (import applies 1 slot;
+  device-mode switches wipe banks — both disproven, banks intact).
+
 ## Task — Screenshot FootCtrlPlus in every device mode (2026-09-07)
 
 - `tools/shot_modes.py` (new): set → get-verify → `import -window`

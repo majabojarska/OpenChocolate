@@ -46,6 +46,8 @@ python3 choco.py trs-jack-mode get                        # detect the enabled T
 python3 choco.py trs-jack-reverse-polarity toggle        # toggle TRS jack polarity reversal (toggle|get)
 python3 choco.py remove-all             # clear the mapped events list
 python3 choco.py add                    # append a new event to the list
+python3 choco.py export-preset <name>   # export device preset to Documents as <name>.fcp
+python3 choco.py import-preset <name>   # import <name>.fcp from Documents (full-fidelity, round-trip identical)
 python3 choco.py click <name>           # generic: click any named coordinate
 ./demo.sh                               # canned sequence with 1s pauses
 ```
@@ -86,13 +88,13 @@ OCRs the bank region (A: (590,640)-(883,852), B shifted +340px X):
 ```sh
 python3 choco.py read-bank a     # bank A (default)
 python3 choco.py read-bank b     # bank B
-python3 choco.py read-bank-exact a  # byte-exact slot-1 read via 0D register-read init (reopens editor)
+python3 choco.py read-bank-exact a  # byte-exact 10-slot read via 0D register-read init (reopens editor)
 ```
 
-`read-bank-exact` decodes the slot-1 MIDI record directly from the device
+`read-bank-exact` decodes all 10 MIDI records directly from the device
 config (the `0D` register-read protocol, chunk `000000`) — no OCR. It
-closes and re-opens FootCtrlPlus to trigger the read-back. Currently
-decodes slot 1 only (see REVERSED_PROTOCOL_SPEC.md §4.3).
+closes and re-opens FootCtrlPlus to trigger the read-back
+(`decode_bank_a_slots` / `decode_b_slots`; empty records skipped).
 
 Output is one row per parsed entry:
 ```

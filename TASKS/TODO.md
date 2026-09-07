@@ -10,32 +10,43 @@ Open work, roughly in priority order. Items marked **[spec]** are detailed in
 `REVERSED_PROTOCOL_SPEC.md`. Done: bank A slots 2-7 (see FINISHED
 2026-09-07), foot B/C/D stored mapping (see FINISHED 2026-09-07),
 device/TRS/polarity read-back (see FINISHED 2026-09-07), mode
-screenshots (see FINISHED 2026-09-07).
+screenshots (see FINISHED 2026-09-07), import/export harness (see
+FINISHED 2026-09-07).
 
 ---
 
-## Task 1 — Import/export device presets in the `choco.py` harness
+## Task 1 — Codify the 16-slot bank maximum
 
-**Goal:** `choco.py export-preset <name>` / `import-preset <name>`
-driving FootCtrlPlus's Export/Import buttons + file picker, operating
-from `Documents` only. The Wine prefix lives at
-`~/.var/app/com.usebottles.bottles/data/bottles/bottles/Chocolate/`
-(`drive_c/users/maja/Documents/` is empty; no `.FCP` files exist yet).
+A maximum of 16 slots can be added in any bank. Codify in `choco.py`
+(`MAX_SLOTS = 16`; refuse event index ≥ 16 in `open_edit` /
+`set-message` / `add` paths) and document in `REVERSED_PROTOCOL_SPEC.md`
+(bank capacity row + what the app does on a 17th add — reconfirm live:
+ignores, disables Add, or errors — and record it).
+
+Gate: 17th add refused by the harness; spec states the limit.
+
+---
+
+## Task 2 — Scrollbar support: add/edit/read bank items up to 16 **[spec]**
+
+At 12+ slots a scrollbar appears (up arrow, slider, down arrow).
+Today the harness covers slots 1-11 (`EVENT_EDIT_BUTTONS`); slots 12-16
+need scrolling and their protocol layouts are unmapped (decoders cover
+10 slots/bank).
 
 **Method:**
-1. Recon: open each picker, screenshot, identify the picker window
-   title (new `STACK` entry, e.g. `file_picker`), measure coords: File
-   name input, Open/Save, Cancel, Documents tree item (single click,
-   no tree-expansion sequences per constraints).
-2. Extend `choco.py`: `STACK` + `WINDOW_TITLES` + `COORDS` +
-   `ACTION_WINDOW` + `DISPLAY` entries; `export-preset` / `import-preset`
-   actions reusing `_clear_and_type()` for the filename box, with
-   appear/close waits like the `midi_edit` dialog flow. Add a prefix
-   constant for Linux-side file access.
-3. Gate: export creates `<name>.FCP` under prefix `Documents`
-   (verified from the Linux side); import of a known `.FCP` reproduces
-   its state via `read-bank-exact`; export→import→export round-trips
-   byte-identical. End on `advanced_custom`.
+1. Recon: fill 12-16 slots, screenshot the bank list, measure scrollbar
+   coords + slots 12-16 edit-button positions. Scroll-to-bottom = left
+   click just above the down arrow (from top). Use the auto-incremented
+   `[n]` indices as reference.
+2. Harness: scroll-aware `open_edit` (ensure-visible: scroll to bottom
+   for index ≥ visible count), extend `EVENT_EDIT_BUTTONS` to 16,
+   `read-bank` OCR region for the scrolled view.
+3. Protocol: map slots 11-16 offsets/layouts via diff campaign (same
+   technique as s2-7: single-field value spreads + solver), extend
+   `decode_bank_a_slots` / `decode_b_slots` / stored homes as needed.
+4. Gate: add + edit + `read-bank-exact` a 16-slot bank end-to-end;
+   17th add refused (Task 1). Document scrollbar + slots 11-16 in spec.
 
 ---
 
