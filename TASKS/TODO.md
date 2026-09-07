@@ -15,18 +15,6 @@ FINISHED 2026-09-07).
 
 ---
 
-## Task 1 — Codify the 16-slot bank maximum
-
-A maximum of 16 slots can be added in any bank. Codify in `choco.py`
-(`MAX_SLOTS = 16`; refuse event index ≥ 16 in `open_edit` /
-`set-message` / `add` paths) and document in `REVERSED_PROTOCOL_SPEC.md`
-(bank capacity row + what the app does on a 17th add — reconfirm live:
-ignores, disables Add, or errors — and record it).
-
-Gate: 17th add refused by the harness; spec states the limit.
-
----
-
 ## Task 2 — Scrollbar support: add/edit/read bank items up to 16 **[spec]**
 
 At 12+ slots a scrollbar appears (up arrow, slider, down arrow).

@@ -266,8 +266,18 @@ MIDI_EDIT_COORDS = {
 # the dialog and moves the OK button 10px up.
 CONFIRM_Y_BY_TYPE = {MidiType.PC: 176}  # others keep the default 186
 
+# Bank capacity: at most 16 event slots per bank. Observed live
+# (2026-09-07, operator report): pressing Add with 16 slots present is
+# still accepted by the UI (the button stays enabled) but adds nothing —
+# no 17th row appears and the scrollbar slider size does not change.
+# The harness therefore refuses to create slot 17+: `add` takes the
+# current slot count and exits 1 without clicking when it is >= MAX_SLOTS;
+# `open_edit` / `set-message` refuse event index >= MAX_SLOTS.
+MAX_SLOTS = 16
+
 # "Edit" buttons for each mapped event, in the FootCtrlPlus window.
-# One entry per event row (slot 1 = index 0).
+# One entry per event row (slot 1 = index 0). Only slots 1-11 are mapped
+# so far; slots 12-16 need scrollbar support (Task 2).
 EVENT_EDIT_BUTTONS = [
     (725, 652),  # slot 1
     (695, 674),  # slot 2
@@ -556,9 +566,17 @@ def open_edit(event_index: int = 0, bank: str = "a") -> int:
     If a midi_edit dialog is already open (top of stack), close it first
     so the edit button of FootCtrlPlus is reachable again.
     """
-    if not 0 <= event_index < len(EVENT_EDIT_BUTTONS):
+    if event_index >= MAX_SLOTS or event_index < 0:
         print(
-            "open-edit: only event 1 (index 0) is defined so far",
+            f"open-edit: event index {event_index} exceeds the bank capacity "
+            f"of {MAX_SLOTS} slots (0-{MAX_SLOTS - 1})",
+            file=sys.stderr,
+        )
+        return 1
+    if event_index >= len(EVENT_EDIT_BUTTONS):
+        print(
+            f"open-edit: event {event_index + 1} needs scrollbar support "
+            "(only slots 1-11 mapped so far)",
             file=sys.stderr,
         )
         return 1
@@ -645,6 +663,13 @@ def edit_confirm(mtype: MidiType | None = None) -> int:
 def set_message(msg: MidiMessage, event_index: int = 0, bank: str = "a") -> int:
     """Full pipeline: open the event's edit dialog if needed, fill in the
     message fields, and confirm."""
+    if event_index >= MAX_SLOTS or event_index < 0:
+        print(
+            f"set-message: event index {event_index} exceeds the bank capacity "
+            f"of {MAX_SLOTS} slots (0-{MAX_SLOTS - 1})",
+            file=sys.stderr,
+        )
+        return 1
     err = msg.validate()
     if err:
         print(f"set-message: invalid message: {err}", file=sys.stderr)
@@ -729,8 +754,23 @@ def switch(foot: str, absolute: bool = False, bank: str = "a") -> int:
     return cmd_click(FOOT_SWITCHES[foot.lower()], absolute, bank=bank)
 
 
-def add(absolute: bool = False, bank: str = "a") -> int:
-    """Click 'Add' on FootCtrlPlus."""
+def add(absolute: bool = False, bank: str = "a", slot_count: int | None = None) -> int:
+    """Click 'Add' on FootCtrlPlus.
+
+    `slot_count` is the number of slots already in the bank (the new slot
+    would be index `slot_count`). When given and >= MAX_SLOTS, refuse
+    (exit 1, no click): the app ignores a 17th Add, so the harness must
+    not pretend it succeeded. Omitted when the count is unknown (the
+    harness cannot count rows without OCR); callers that track fills
+    (e.g. camp2) should pass it.
+    """
+    if slot_count is not None and slot_count >= MAX_SLOTS:
+        print(
+            f"add: bank already holds {slot_count} slots "
+            f"(max {MAX_SLOTS}); refusing — the app ignores a 17th Add",
+            file=sys.stderr,
+        )
+        return 1
     return cmd_click("add", absolute, bank=bank)
 
 
@@ -1616,6 +1656,13 @@ def main(argv=None) -> int:
         action="store_true",
         help="compute screen coords from wmctrl -lG instead of window-relative",
     )
+    p_add.add_argument(
+        "--count",
+        type=int,
+        default=None,
+        help="slots already in the bank; refuse (exit 1, no click) when "
+        f">={MAX_SLOTS} (the app ignores a 17th Add)",
+    )
     _add_bank_flag(p_add)
 
     p_start = sub.add_parser(
@@ -1792,7 +1839,10 @@ def main(argv=None) -> int:
     if args.command == "remove-all":
         return remove_all(args.absolute, bank=args.bank)
     if args.command == "add":
-        return add(args.absolute, bank=args.bank)
+        if args.count is not None and args.count < 0:
+            print(f"add: --count must be >= 0 (got {args.count})", file=sys.stderr)
+            return 1
+        return add(args.absolute, bank=args.bank, slot_count=args.count)
     if args.command == "start-foot-ctrl-plus":
         return start_foot_ctrl_plus(args.absolute)
     if args.command == "close-editor":

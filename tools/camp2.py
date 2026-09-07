@@ -11,6 +11,8 @@ import subprocess
 import sys
 import time
 
+from choco import MAX_SLOTS
+
 CAPTURES_ROOT = "captures"
 
 
@@ -34,6 +36,13 @@ def fill(bank: str, msgs: list[tuple[str, int, int, int]]) -> bool:
     # make sure FootCtrlPlus is the top window: if it's closed, reopen it.
     # start-foot-ctrl-plus only fires when the launchpad is on top, so a
     # non-zero exit just means FootCtrlPlus is already focused.
+    if len(msgs) > MAX_SLOTS:
+        print(
+            f"fill: {len(msgs)} slots exceeds the bank capacity "
+            f"of {MAX_SLOTS}; refusing",
+            file=sys.stderr,
+        )
+        return False
     t_fill = time.perf_counter()
     t_remove = t_add = t_set = 0.0
     if cli("state") != 0:
@@ -55,7 +64,9 @@ def fill(bank: str, msgs: list[tuple[str, int, int, int]]) -> bool:
     time.sleep(0.7)
     for i, (mt, ch, d1, d2) in enumerate(msgs):
         t0 = time.perf_counter()
-        if cli("add", "--bank", bank):
+        # --count i: the bank holds i slots before this Add, so the 17th
+        # Add (i=16) is refused by the harness instead of clicked.
+        if cli("add", "--bank", bank, "--count", str(i)):
             return False
         t_add += time.perf_counter() - t0
         time.sleep(0.7)

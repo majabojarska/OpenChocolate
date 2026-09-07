@@ -497,6 +497,17 @@ noteon — 9 sibling samples confirm the code; decoder is right).
 Residual caveats: C-A s10 ch-b3/d2-b3 share a bit (exact on 10,
 needs a spot-check); unobserved type codes decode '?'.
 
+### 4.6 Bank capacity — 16 slots max (2026-09-07)
+
+| property | value |
+|---|---|
+| max slots per bank | 16 |
+| 17th Add (operator-observed, no wire recon) | UI still accepts the click — the Add button stays enabled — but adds nothing: no 17th row appears and the scrollbar slider size does not change |
+| harness gate | `choco.MAX_SLOTS = 16`; `add --count N` refuses (exit 1, no click) when N ≥ 16, `open-edit` / `set-message` refuse event index ≥ 16; `camp2.fill` passes `--count` and refuses fills longer than 16 |
+
+At 12+ slots a scrollbar appears (up arrow, slider, down arrow); slots
+12-16 edit-button positions are unmapped — see Task 2.
+
 ## 5. Checksum
 
 ### SOLVED — 14-bit complement sum for the small SysEx families (2026-09-06)

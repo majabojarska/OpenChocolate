@@ -74,3 +74,4 @@ dialogs (file picker) report an origin that includes the ~30px title
   already stores working per-window values; if clicks land offset, use
   `--absolute` (converts via `wmctrl -lG`) or re-measure from a fresh
   screenshot.
+- When working with screenshots, prefer using or writing tools to process them (like comparing or detecting something). Abstain from reading the raw files yourself!

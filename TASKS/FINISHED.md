@@ -2,6 +2,24 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task 1 — Codify the 16-slot bank maximum (2026-09-07)
+
+- `choco.py`: new `MAX_SLOTS = 16`; `open_edit` / `set-message` refuse
+  event index ≥ 16 (exit 1, no click), `add --count N` refuses when
+  N ≥ 16; indices 11-15 keep a distinct "needs scrollbar support"
+  refusal (Task 2). `tools/camp2.py` `fill` passes `--count` per Add
+  and refuses fills longer than 16.
+- Spec §4.6 (new): bank capacity row + 17th-Add behavior as
+  operator-observed (Add stays enabled, press accepted, nothing added,
+  slider size unchanged — no wire recon per task instruction).
+- Gates verified offline (no GUI): `add --count 16`, `open-edit 16`,
+  and `set-message … --event 16` all exit 1 without clicking; `ruff
+  format` + `ruff check` pass on `choco.py` / `tools/camp2.py`.
+- Note: one stray live `Add` click fired during gate verification
+  (`add --count 15` proceeds to click by design when under the limit
+  and FootCtrlPlus was focused) — bank contents after that click were
+  not verified; re-check the current bank before the next fill campaign.
+
 ## Task 1 — Import/export device presets in the `choco.py` harness (2026-09-07)
 
 - `choco.py export-preset <name>` / `import-preset <name>`: new
