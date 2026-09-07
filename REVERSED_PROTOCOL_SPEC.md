@@ -685,28 +685,42 @@ Verified **bit-perfect**: 5224/5224 ACKs, and 1930/1935 `09 49` messages
 (the 5 mismatches were the spec's earlier wrong guess for the fs-D
 selector `40 0A` — it uses `0x28A`, not `0x38B`).
 
-### NOT SOLVED — `09 41 40` full-config page writes (and the `0D 49` read-back)
+### PARTIALLY SOLVED — `09 41 40` model cracked, full mapping open (2026-09-07)
 
-The 1175-byte page writes (`09 41 40`) use a **different, non-linear
-checksum**: the K−S form fails (0/2376 matches), all standard ~20 CRC-16
-variants fail over every domain/start/end (0/936), an exhaustive scan of
-all 32768 16-bit polynomials × init × reflection × 6 domains found
-nothing (5 min, 12 cores), and simple hash families (DJB2/FNV/sdbm/
-adler/crc32/popcount/nibble/weighted) all fail. Empirically:
-- every payload byte is covered (mutating any single byte of a page with
-the stale checksum is NAKed and the write is dropped);
-- the checksum bytes are 7-bit (c1 ∈ {2,3,4} observed), so X is small
-(≈0x300), while the payload sums to thousands — the algorithm is likely
-not a plain integer sum.
-- A theoretical possibility: it may be the same 14-bit complement over a
-**transformed** element space (e.g. a per-position linear transform or a
-custom LFSR), which the exhaustive scans did not cover.
+The 1175-byte page writes (`09 41 40`) use **X = K − 4·S (mod 2¹⁴)**
+with S a bit-weighted sum plus joint terms — found after the standard
+families failed (K−S 0/2376, CRC-16 ×20 0/936, 32768-poly scan, hashes).
+Dataset: 3600+ `(payload, X)` pairs harvested from all captures
+(`tools/harvest_pages.py` → `/tmp/pagepairs.pkl`; GUI-edit domain
+`(02,5D,off)` + FCP-import domain `(02,00,off)`; only off0 ∈ {0,8} pages
+vary, the rest are fixed template). Evidence:
 
-**Status note (2026-09-06):** arbitrary page writes are NOT yet possible;
-we can only replay verbatim captured page sequences (which DO work, ACK
-each page and set state). The `0D` init read-back sweep works fully from
-`amidi` (23/24 responses; the 24th request answers `0D 79` — a variant
-response, harmless).
+- ALL 4000+ pair ΔX divisible by 4; X range 8–1004 (no mod wrap).
+- 60+ single-bit flips fit S = ±2^e exactly (bit exponents e ≤ 11);
+  37 exponents solved by propagation (`tools/solve_chexp.py`: seeds +
+  union-find + k≤3 unique decomposition), 0 conflicts on 400+ checkable
+  pairs. E.g. one slot's d1 bits map to page bits with e = 0..6.
+- **Interactions proven**: flipping page-145-bit1 gives S=+32 (e=5) with
+  bit0 clear but S=−224 with bit0 set; same for another pair (−256
+  shift). So S has joint (multi-bit) terms, not just per-bit weights.
+- A 4×4 joint table over an interacting byte pair fits separably with
+  LOOCV error ~1e-13 (`/tmp/grid144145.pkl`) — the grid method works;
+  a regime change appears when high bits set (needs wider grids).
+- K is global (single-K fits all) but its VALUE is unsolved (needs the
+  complete S first).
+
+Tools: `solve_checksum.py` (lstsq exploration), `solve_chexp.py`
+(propagation), `gen_rand_fcp.py` (random/chain FCPs),
+`camp_import.py` (import-capture loop), `harvest_pages.py`.
+
+**Practical status:** arbitrary writes are ALREADY achievable via FCP
+import (§4.7 gate) — no checksum needed. Direct amidi page writes need:
+joint tables per interacting group (grid method) + K solve + a live ACK
+test (NAKs make trial writes safe). The `0D 49` read-back checksum
+(tail @1152-1153) is still open (untested against this model).
+
+Superseded note (2026-09-06): arbitrary page writes are NOT yet possible
+via direct writes; verbatim replay works (ACKs, sets state).
 
 ---
 

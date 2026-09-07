@@ -33,15 +33,20 @@ they resolve imports and `captures/` paths relative to it).
     `analyze_captures.py` (capture parser shared by everything in `tools/`),
     `decode_stored.py` (foot B/C/D stored-region bank decoders)
 - `tools/` — one-shot or supporting scripts, by role:
-  - campaigns: `sweep_a_full.py`, `anchor_feet.py`, `rand_stored.py`
+  - campaigns: `sweep_a_full.py`, `anchor_feet.py`, `rand_stored.py`,
+    `camp_import.py` (import-capture loop harvesting page writes)
   - solvers/search: `solve_bits.py`, `solve_stored.py`, `fmt_search.py`,
-    `fmt_search6.py`, `pick_bits.py`
+    `fmt_search6.py`, `pick_bits.py`, `solve_checksum.py` (page-checksum
+    lstsq exploration), `solve_chexp.py` (checksum bit-exponent
+    propagation + union-find)
   - gates: `verify_a.py`, `verify_a2.py`, `verify_b.py`,
     `verify_sweeps.py`, `rand_verify.py`, `verify_hypothesis.py`,
     `verify_gate1.py` (generated-FCP gate vs a close/reopen capture)
   - generators: `gen_fcp.py` (`.FCP` preset generator from a JSON device
-    spec) with gate specs `tools/gate1.json`, `tools/gate2.json`
-  - misc: `diff_chunks.py`, `direct_test.py`
+    spec) with gate specs `tools/gate1.json`, `tools/gate2.json`,
+    `gen_rand_fcp.py` (randomized/chained FCPs for checksum campaigns)
+  - misc: `diff_chunks.py`, `direct_test.py`, `harvest_pages.py`
+    (rebuild page-write pair dataset from captures)
 - `REVERSED_PROTOCOL_SPEC.md` — the reverse-engineered protocol spec; keep
   in sync with decoders in `trace.py`.
 - `TASKS/` — `TODO.md` (next task) and `FINISHED.md` (completed tasks,
