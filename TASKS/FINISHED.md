@@ -2,7 +2,7 @@
 
 Completed tasks are listed here, most recent first.
 
-## Task — Page-write checksum (`09 41 40`): model cracked, mapping open (2026-09-07)
+## Task — Page-write checksum (`09 41 40`): SOLVED via live crafted write (2026-09-07)
 
 - **Model: X = K − 4·S (mod 2¹⁴)** (spec §5). Dataset: 3600+ harvested
   pairs (`harvest_pages.py`; GUI domain `(02,5D)` + import domain
@@ -15,16 +15,16 @@ Completed tasks are listed here, most recent first.
 - **Joint-table method proven**: 4×4 grid over an interacting pair fits
   separably, LOOCV ~1e-13; regime change with high bits set (needs wider
   grids). K global but value unsolved (needs complete S).
+- **Gate: crafted 23-page sequence** (1 page modified: slot-6 d1 via
+  bytes (144,145)=(24,3), X=44 from the joint table) sent via `aseqsend`
+  (ALSA sequencer — Wine holds raw MIDI exclusively) → **23/23 ACKed**
+  → `read-bank-exact` confirms slot 6 d1 == 51 (`tools/gate_write.py`).
 - Campaigns (all RC=0): 12 randomized + 20 chained + 8 bit-sweep + 16
   grid + background-test FCP imports (`gen_rand_fcp.py`,
-  `camp_import.py`), ~60 captures. Tools kept: `solve_checksum.py`,
-  `solve_chexp.py`, `harvest_pages.py` (+`/tmp` datasets regenerable).
-- **Practical close:** arbitrary writes already work via FCP import
-  (§4.7); direct amidi writes need joint tables per group + K + live ACK
-  test (NAKs make trials safe). `0D 49` tail checksum untested vs model.
-- Incidental env findings: synthetic input dies when Wayland EI
-  screen-control expires (warps + XTEST dead, physical alive) — re-grant
-  recovers; FootCtrlPlus needed a full CubeSuite restart once.
+  `camp_import.py`), ~70 captures.
+- Residual: K value (unneeded — deltas cancel it), joint tables per
+  remaining group, `0D 49` tail untested. Env: synthetic input dies when
+  Wayland EI screen-control expires (re-grant recovers).
 
 ## Task 2 — Generate `.FCP` files from a structured device representation (2026-09-07)
 

@@ -46,7 +46,8 @@ they resolve imports and `captures/` paths relative to it).
     spec) with gate specs `tools/gate1.json`, `tools/gate2.json`,
     `gen_rand_fcp.py` (randomized/chained FCPs for checksum campaigns)
   - misc: `diff_chunks.py`, `direct_test.py`, `harvest_pages.py`
-    (rebuild page-write pair dataset from captures)
+    (rebuild page-write pair dataset from captures), `gate_write.py`
+    (crafted-checksum page-write gate via aseqsend)
 - `REVERSED_PROTOCOL_SPEC.md` — the reverse-engineered protocol spec; keep
   in sync with decoders in `trace.py`.
 - `TASKS/` — `TODO.md` (next task) and `FINISHED.md` (completed tasks,

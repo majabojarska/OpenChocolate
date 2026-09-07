@@ -692,32 +692,39 @@ with S a bit-weighted sum plus joint terms — found after the standard
 families failed (K−S 0/2376, CRC-16 ×20 0/936, 32768-poly scan, hashes).
 Dataset: 3600+ `(payload, X)` pairs harvested from all captures
 (`tools/harvest_pages.py` → `/tmp/pagepairs.pkl`; GUI-edit domain
-`(02,5D,off)` + FCP-import domain `(02,00,off)`; only off0 ∈ {0,8} pages
-vary, the rest are fixed template). Evidence:
+### SOLVED — `09 41 40` page-write checksum (2026-09-07)
 
-- ALL 4000+ pair ΔX divisible by 4; X range 8–1004 (no mod wrap).
-- 60+ single-bit flips fit S = ±2^e exactly (bit exponents e ≤ 11);
-  37 exponents solved by propagation (`tools/solve_chexp.py`: seeds +
-  union-find + k≤3 unique decomposition), 0 conflicts on 400+ checkable
-  pairs. E.g. one slot's d1 bits map to page bits with e = 0..6.
-- **Interactions proven**: flipping page-145-bit1 gives S=+32 (e=5) with
-  bit0 clear but S=−224 with bit0 set; same for another pair (−256
-  shift). So S has joint (multi-bit) terms, not just per-bit weights.
-- A 4×4 joint table over an interacting byte pair fits separably with
-  LOOCV error ~1e-13 (`/tmp/grid144145.pkl`) — the grid method works;
-  a regime change appears when high bits set (needs wider grids).
-- K is global (single-K fits all) but its VALUE is unsolved (needs the
-  complete S first).
+**Model: X = K − 4·S (mod 2¹⁴)**, S a bit-weighted sum plus joint
+terms — **gate-proven by a live crafted write** (`tools/gate_write.py`:
+23/23 pages ACKed, device slot 6 reads d1=51 exactly as computed).
 
-Tools: `solve_checksum.py` (lstsq exploration), `solve_chexp.py`
-(propagation), `gen_rand_fcp.py` (random/chain FCPs),
-`camp_import.py` (import-capture loop), `harvest_pages.py`.
+How it was cracked (after K−S 0/2376, CRC-16 ×20 0/936, 32768-poly
+scan, hash families all failed): 3600+ `(payload, X)` pairs harvested
+from all captures (`tools/harvest_pages.py`; GUI domain `(02,5D)` +
+import domain `(02,00)`; only off0 ∈ {0,8} pages vary). Key findings:
 
-**Practical status:** arbitrary writes are ALREADY achievable via FCP
-import (§4.7 gate) — no checksum needed. Direct amidi page writes need:
-joint tables per interacting group (grid method) + K solve + a live ACK
-test (NAKs make trial writes safe). The `0D 49` read-back checksum
-(tail @1152-1153) is still open (untested against this model).
+- ALL pair ΔX divisible by 4; X ∈ [8,1004] (no mod wrap).
+- 60+ single-bit flips fit S = ±2^e (bit exponents e ≤ 11); 37 solved
+  by propagation (`tools/solve_chexp.py`: seeds + union-find + k≤3
+  unique decomposition), 0 conflicts on 400+ checkable pairs.
+- **Interactions**: flipping the same bit gives different ΔX by
+  background (pos-145: +32 vs −224) — S has joint (multi-bit) terms.
+- **Joint-table method** (the solver): grid-map each interacting byte
+group (4×4 grid LOOCV-exact; full 32-point table for the slot-6-d1
+  group at page bytes 144/145); predict ΔX from the table, no K needed
+  (K cancels in deltas).
+- **Gate**: modified one page of a captured 23-page import sequence
+  (slot-6 d1 bits via bytes (144,145) = (24,3), X=44 from the table),
+  sent all 23 via `aseqsend` (ALSA sequencer — Wine holds the raw MIDI
+  port exclusively, so `amidi` direct is unusable while CubeSuite runs),
+  23/23 ACKed, `read-bank-exact` confirms slot 6 d1 == 51.
+
+Tools: `harvest_pages.py`, `solve_checksum.py`, `solve_chexp.py`,
+`gen_rand_fcp.py` (random/chain/bit-sweep/grid FCPs), `camp_import.py`
+(import-capture loop), `gate_write.py` (crafted-write gate).
+Residual: K value (unneeded — delta method cancels it), full joint
+tables per group (only slot-6-d1 mapped; same grid method extends),
+`0D 49` tail checksum untested vs this model.
 
 Superseded note (2026-09-06): arbitrary page writes are NOT yet possible
 via direct writes; verbatim replay works (ACKs, sets state).
