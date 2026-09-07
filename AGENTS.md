@@ -60,5 +60,10 @@ they resolve imports and `captures/` paths relative to it).
 
 ## Working with the GUI harness
 
-If mouse clicks are not effective, stop and ask the operator to check for a "screen control" permission popup.
+- Before starting a new task from [./TASKS/TODO.md](./TASKS/TODO.md), run a minimal healthcheck routine to ensure you can start `FootCtrlPlus`, and that changes are being written into the device.
+  1. Confirm the footswitch MIDI device is present (`aseqdump -l` shows `SINCO`).
+  2. Close `FootCtrlPlus` (if open): `python3 choco.py close-footctrlplus` (`close-editor` via Escape if wedged).
+  3. Open `FootCtrlPlus`: `python3 choco.py start-cubesuite` (if needed) + `python3 choco.py start-foot-ctrl-plus`; wait ~15s, then confirm `python3 choco.py state` shows `footctrlplus` and the `WINE midi driver` port appears.
+  4. Prove the write path with a stateless toggle: `python3 choco.py trs-jack-reverse-polarity get` (note value) → `toggle` → `get` (must flip) → `toggle` → `get` (must flip back). Both flips confirm app→device writes; the round-trip restores state.
+- If mouse clicks are not effective, stop and ask the operator to check for a "screen control" permission popup.
 A missing permission could exhibit as `FootCtrlPlus` not starting after clicking on `CubeSuite`.
