@@ -32,14 +32,33 @@ def cli(*args: str) -> int:
     return r.returncode
 
 
-def fill(bank: str, msgs: list[tuple[str, int, int, int]]) -> bool:
+def fill(
+    bank: str,
+    msgs: list[tuple[str, int, int, int]],
+    view_start: int = 0,
+    fresh: bool = True,
+) -> bool:
     # make sure FootCtrlPlus is the top window: if it's closed, reopen it.
     # start-foot-ctrl-plus only fires when the launchpad is on top, so a
     # non-zero exit just means FootCtrlPlus is already focused.
+    # Two-phase 16-slot fills: top phase fill(bank, msgs11) as before
+    # (fresh: remove-all + adds + edits at viewport rows 0-10); then
+    # fill(bank, msgs11_bottom, view_start=5, fresh=False) scrolls to the
+    # bottom itself (scroll-to-bottom track click) and rewrites the 11
+    # visible rows (slots 6-16) WITHOUT remove-all/adds. fresh=False
+    # requires exactly 11 msgs (whole viewport; unchanged slots are
+    # rewritten identically — safe no-ops).
     if len(msgs) > MAX_SLOTS:
         print(
             f"fill: {len(msgs)} slots exceeds the bank capacity "
             f"of {MAX_SLOTS}; refusing",
+            file=sys.stderr,
+        )
+        return False
+    if view_start and (len(msgs) != 11 or fresh):
+        print(
+            "fill: bottom-phase fills need exactly 11 msgs (slots 6-16) "
+            "with fresh=False",
             file=sys.stderr,
         )
         return False
@@ -58,22 +77,40 @@ def fill(bank: str, msgs: list[tuple[str, int, int, int]]) -> bool:
     if '"state": "footctrlplus"' not in st:
         cli("start-foot-ctrl-plus")
         time.sleep(6)
-    if cli("remove-all", "--bank", bank):
-        return False
-    t_remove = time.perf_counter() - t_fill
-    time.sleep(0.7)
+    if fresh:
+        if cli("remove-all", "--bank", bank):
+            return False
+        t_remove = time.perf_counter() - t_fill
+        time.sleep(0.7)
+    else:
+        t_remove = 0.0
+        if bank != "a":
+            print(
+                "fill: bottom-phase fills need bank A "
+                "(bank B scrollbar offset unmeasured)",
+                file=sys.stderr,
+            )
+            return False
+        if cli("scroll-to-bottom"):
+            return False
+        time.sleep(1.0)
     for i, (mt, ch, d1, d2) in enumerate(msgs):
         t0 = time.perf_counter()
-        # --count i: the bank holds i slots before this Add, so the 17th
-        # Add (i=16) is refused by the harness instead of clicked.
-        if cli("add", "--bank", bank, "--count", str(i)):
-            return False
-        t_add += time.perf_counter() - t0
-        time.sleep(0.7)
+        if fresh:
+            # --count i: the bank holds i slots before this Add, so the
+            # 17th Add (i=16) is refused by the harness instead of clicked.
+            if cli("add", "--bank", bank, "--count", str(i)):
+                return False
+            t_add += time.perf_counter() - t0
+            time.sleep(0.7)
         args = ["set-message", mt, str(ch), str(d1)]
         if mt != "pc":
             args.append(str(d2))
-        args += ["--event", str(i), "--bank", bank]
+        # event is the ABSOLUTE slot index; --view-start maps it to the
+        # visible row (viewport row = event - view_start).
+        args += ["--event", str(view_start + i), "--bank", bank]
+        if view_start:
+            args += ["--view-start", str(view_start)]
         t0 = time.perf_counter()
         if cli(*args):
             return False

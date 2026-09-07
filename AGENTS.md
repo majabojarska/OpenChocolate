@@ -37,7 +37,10 @@ they resolve imports and `captures/` paths relative to it).
   - solvers/search: `solve_bits.py`, `solve_stored.py`, `fmt_search.py`,
     `fmt_search6.py`, `pick_bits.py`
   - gates: `verify_a.py`, `verify_a2.py`, `verify_b.py`,
-    `verify_sweeps.py`, `rand_verify.py`, `verify_hypothesis.py`
+    `verify_sweeps.py`, `rand_verify.py`, `verify_hypothesis.py`,
+    `verify_gate1.py` (generated-FCP gate vs a close/reopen capture)
+  - generators: `gen_fcp.py` (`.FCP` preset generator from a JSON device
+    spec) with gate specs `tools/gate1.json`, `tools/gate2.json`
   - misc: `diff_chunks.py`, `direct_test.py`
 - `REVERSED_PROTOCOL_SPEC.md` — the reverse-engineered protocol spec; keep
   in sync with decoders in `trace.py`.

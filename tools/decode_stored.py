@@ -36,11 +36,16 @@ def dec_s8f(c: bytes, o: int):
 
 def dec_s9(c: bytes, o: int):
     t = BA.get(c[o + 1] >> 3, "?")
+    # d2 high byte carries a 0x40 flag on GUI-written records; the FCP
+    # import path writes it flagless (proven 2026-09-07: b4 = d2>>2
+    # exactly on imported noteoff slots, e.g. d2=14 -> b4=0x03). Handle
+    # both: strip the flag only when present.
+    hi = c[o + 4] - 0x40 if c[o + 4] >= 0x40 else c[o + 4]
     return _mk(
         ((c[o] >> 2) & 0x0F) + 1,
         t,
         (c[o + 2] >> 4) | ((c[o + 3] & 0x1F) << 3),
-        ((c[o + 4] - 0x40) << 2) | (c[o + 3] >> 5),
+        (hi << 2) | (c[o + 3] >> 5),
     )
 
 

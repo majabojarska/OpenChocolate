@@ -2,6 +2,89 @@
 
 Completed tasks are listed here, most recent first.
 
+## Task 2 — Generate `.FCP` files from a structured device representation (2026-09-07)
+
+- **Format SOLVED (spec §4.7):** 23646B fixed template + regions. Foot
+  regions @95+417k (A/B/C/D), bank A @+0, bank B @+80 (16×5B recs each:
+  `[ch-1, type 0-3, d1, d2, flag]` — plain bytes, NOT bit-packed).
+  Flag = `01` iff another slot follows (`i < count-1`), `00` = last
+  (rec15 byte always `01`); import reads while-`01`-plus-one, cap 16
+  (proven: 2-slot file imports as 2 rows). Modes: @0 device (0x00-0x0C,
+  1 byte each, all 13 verified), @1 TRS (0/1), @93 viewed-foot mode +
+  per-foot @region-2 (B@510, C@927, D@1344; 0x00-0x04, mixed-mode import
+  sticks per foot), @23642 polarity. Selected foot NOT stored.
+- **Generator `tools/gen_fcp.py`** (spec JSON reusing MidiMessage
+  fields + template field-writes) with gates `tools/gate1.json` (rich
+  banks: ch16/d127/all types) and `tools/gate2.json` (mixed foot modes).
+- **Gate PASS:** generated → GUI import → `verify_gate1.py` exact:
+  footA 16+10 slots, B/C/D banks, device/TRS/polarity, per-foot modes.
+  Import needs ~60-90s settle before close/reopen (async queue; early
+  reopen reads stale feet — first looked like "import skips B/C/D").
+- **App-model staleness (critical):** GUI fills update device + visible
+  list but NOT the app's per-foot model; the next fill's full-config
+  pages flush STALE unviewed feet (proven: foot-B [41,42] wiped by a
+  foot-C fill; foot-A always survives). RULE: use FCP import for
+  multi-foot writes. Footswitch-mode switches are safe (09 49 only,
+  no pages; earlier "revert" was the fill-wipe, not the mode switch).
+- **Checksum relation:** FCP import is a working alternate write path
+  around the unsolved `09 41 40` checksum (arbitrary full configs, no
+  checksum to solve); prefer import over direct page writes.
+- Incidental fix: `decode_stored.dec_s9` handled flagless d2 (import
+  writes stored-s9 without the 0x40 flag; was -256 garbage). Residual:
+  byte-4/rec15 edge semantics, e2e04 rec2 flag anomaly, bank-B offsets
+  per foot assumed region+80 (gate-verified for content, not offsets).
+- Current device state: gate2 config (foot B single-bank, rest double).
+
+## Task 2 — Scrollbar support: add/edit/read bank items up to 16 (2026-09-07)
+
+- **Scroll verdict (corrected): a single synthetic track click just
+  above the down arrow (874,829) pages a 16-slot list top→bottom**
+  (slots 6-16; idempotent) — operator-tipped, harness-verified. Earlier
+  "~18 failures" mixed input-dead tests (screen-control permission had
+  expired mid-session — Wayland+XWayland EI portal; whole-CubeSuite
+  restart + re-grant recovered it) with a wrong coord (872,814 is dead;
+  874,829 is the spot). Still broken: page-up, arrows, drags, wheel,
+  list keys. Thumb position is MEANINGLESS (bottom on fresh top-view
+  opens) — verify by row contents. Top via close+reopen. Geometry: 11
+  rows @19px, gutter x 864-880, arrows ~612-629 / ~832-849 (spec §4.6).
+  Window is fixed-size (resize refused).
+- **Key discovery: Edit buttons are per-VIEWPORT-ROW** — the same 11
+  coords address slots 1-11 (top) and slots 6-16 (bottom). Top viewport
+  row 0 can go stale (keeps slot-1 text after scrolling). Harness:
+  `open-edit` / `set-message` take absolute slot + `--view-start`
+  (0 = top, 5 = bottom); `scroll-to-bottom` command (bank A only — bank
+  B's scrollbar offset is unmeasured, refused); `camp2.fill` supports
+  two-phase fills (`fresh=False` + 11 viewport msgs, auto-scrolls).
+  `read-bank` needs no change (same OCR region; rows repaint in place)
+  — its 1-entry parses are pre-existing OCR flakiness (`0`→`O` at this
+  font size), untouched.
+- **Protocol: bank A slots 11-16 SOLVED via format reuse** (no spread
+  campaign needed): s11 = format B @165, s12 = format C @171,
+  s13 = format D @177, s14 = A-s7 bits @181, s15 = A-s8 row @188,
+  s16 = A-s9 row @194 — each exact on a distinctive d1
+  (110,120,121,122,123,124, ch1/pc/d2=0) with the authoritative
+  `trace._fmt_*`/`_A_SLOTS` code. Pattern: 11-13 reuse bank-B B/C/D,
+  14-16 reuse bank-A s7/s8/s9. `decode_bank_a_slots` returns all 16.
+- **Gate, end-to-end live**: 16 added (`--count`-guarded) → slots 12-16
+  set to 120-124 via bottom-viewport rows (operator scroll + 13
+  page-writes/edit on the wire each) → `read-bank-exact a` 16/16 exact
+  (77,0,0,0,0,60,70,80,90,100,110,120-124); 17th add still refused.
+  Captures: `2026-09-07_task2_{16slot_readback,markers2,slot11_prot,
+  slot12_edit,slots13_16_edit,16slot_final,writetest}.log`.
+- Incidental: `picker_cancel` coord fixed (625,535)→(614,502, old value
+  below the 522-tall dialog; flows confirm via Return so unaffected).
+  Notable findings: `remove-all` does NOT clear @165+ (stale bytes linger
+  — this is what made the first marker round look "lost": it had edited
+  bottom-viewport slots 11-16 while analysis assumed top); keep a MIDI
+  subscriber attached during fills (unconfirmed whether the first-round
+  confusion involved buffering — writes always verified when captured).
+- Residual: s13/s15/s16 have dual fits (A-s6/B-D, A-s8/B-F, A-s9/B-G —
+  near-identical; need ch/type/d2 spot-checks); slots 11-16 ch/type/d2
+  variation untested (single uniform samples; bit positions fully solved
+  elsewhere). Recon tools kept: `tools/recon_scroll*.py`,
+  `measure_scroll*.py`, `identify_*.py`, `row_sig.py`, `try_reuse.py`,
+  `try_exact.py`, `scroll_matrix.py`, `scroll_probe.py`.
+
 ## Task 1 — Codify the 16-slot bank maximum (2026-09-07)
 
 - `choco.py`: new `MAX_SLOTS = 16`; `open_edit` / `set-message` refuse

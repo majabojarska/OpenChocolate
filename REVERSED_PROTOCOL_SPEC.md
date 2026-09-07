@@ -384,7 +384,13 @@ slot a different internal encoding:
 | bank A slot 7 | @142–147 | **SOLVED**: ch-1 = (142>>6)&1 \| ((143&7)<<1), +1 (ch<9 unconfirmed); type {0x00 pc, 0x01 cc, 0x02 noteon, 0x03 noteoff}; d1 = (145>>1)&0x3F \| ((146&1)<<6); d2 = (146>>2)&0x1F \| ((147&3)<<5) |
 | bank A slot 8 | @148–152 | **FULLY DECODED** (2026-09-06, extended 2026-09-07): ch-1 bits 0-2 @148:4-6 + bit3 @149:0, type_idx<<5 (0/32/64/96), (d1&1)<<6, d1>>1, d2 plain — verified on the a8 sweep (6 variants) + s8ch9/12/16 single-field fills |
 | bank A slot 9 | @154–158 | **FULLY DECODED** (2026-09-06): (ch-1)<<2, type_idx<<3, (d1&7)<<4, (d1>>3)|((d2&3)<<5), 0x40|(d2>>2) — verified on the a9 sweep |
-| bank A slot 10 | @160–164 | **FULLY DECODED** (2026-09-06): ch-1, type_idx<<1, (d1&0x1F)<<2, ((d2&0xF)<<3)|(d1>>5), d2>>4 — verified on a10 sweep + d2 sweep (no 0x10 marker bit) |
+| bank A slot 10 | @160–164 | **FULLY DECODED** (2026-09-06): ch-1, type_idx<<1, (d1&0x1F)<<2, ((d2&0xF)<<3)\|(d1>>5), d2>>4 — verified on a10 sweep + d2 sweep (no 0x10 marker bit) |
+| bank A slot 11 | @165–170 (format B, 6B) | **DECODED via reuse** (2026-09-07): ch b0-1 @165:5-6 + b2-3 @166:0-1; type (@166:6<<1)\|@167:0; d1 plain @168; d2 = ((@169&0x7F)\|((@170&1)<<7))>>1 |
+| bank A slot 12 | @171–175 (format C, 5B) | **DECODED via reuse**: (ch-1)<<3 @171; type b0<<5\|b1<<4 @172; d1 = ((@173>>5)&3)\|((@174&0x1F)<<2); d2 = (@175<<1)\|((@174>>6)&1) |
+| bank A slot 13 | @177–181 (format D, 5B) | **DECODED via reuse** (caveat: A-s6@176 also fits — needs a ch/type/d2 spot-check): (ch-1)<<1 @177; type<<2 @178 (inverted table); d1 = ((@179>>3)&0x0F)\|((@180&7)<<4); d2 = ((@181&0x0F)<<3)\|((@180>>4)&7); flag @176=0x01 |
+| bank A slot 14 | @181–187 (A-s7 bits, 7B) | **DECODED via reuse**: ch = (@182>>6)\|((@183&7)<<1); type @184 (s7 table); d1 = ((@185>>1)&0x3F)\|((@186&1)<<6); d2 = ((@186>>2)&0x1F)\|((@187&3)<<5) — @181 shared with s13's last byte |
+| bank A slot 15 | @188–192 (A-s8 row; B-F also fits) | **DECODED via reuse**: ch b0-2 @188:4-6 + b3 @189:0; type<<5 @189; d1 = ((@190>>6)\|(@191<<1)); d2 plain @192 |
+| bank A slot 16 | @194–198 (A-s9 row; B-G also fits) | **DECODED via reuse**: (ch-1)<<2 @194; type<<3 @195; d1 = ((@196>>4)\|((@197&0x1F)<<3)); d2 = ((@198-0x40)<<2)\|(@197>>5); flag @193=0x02 |
 | bank B slot 1 | @200–204 | @200 `ch−1`, @201 `type_index<<1` (0/2/4/6), @202 `(d1&0x1F)<<2`, @203 `(d2&0x0F)<<3 \| (d1>>5)`, @204 `0x10 \| (d2>>4)` (bit 4 optional in some read-backs) — **FULLY DECODED** (format A) |
 | bank B slot 2 | @205–210 | **FULLY DECODED** (format B): @205 bits 5-6 = `(ch-1)` bits 0-1; @206 bits 0-1 = `(ch-1)` bits 2-3; type = `(@206 bit6 << 1) \| (@207 bit0)` (0=pc 1=noteon 2=cc 3=noteoff); @208 `d1` plain; @209 `(d2<<1) & 0x7F`; @210 bit 0 = `d2 >> 6` |
 | bank B slot 3 | @211–215 | **FULLY DECODED** (format C): @211 `(ch-1)<<3`; @212 `(type bit0)<<5 \| (type bit1)<<4`; @213 `(d1&3)<<5`; @214 `(d1>>2) \| ((d2&1)<<6)`; @215 `d2>>1` |
@@ -497,6 +503,25 @@ noteon — 9 sibling samples confirm the code; decoder is right).
 Residual caveats: C-A s10 ch-b3/d2-b3 share a bit (exact on 10,
 needs a spot-check); unobserved type codes decode '?'.
 
+> **BANK A SLOTS 11-16 DECODED via format reuse (2026-09-07):** a 16-slot
+> bank (slot1=77, slots 6-11=60-110, slots 12-16=120-124, operator-scrolled
+> bottom viewport + harness viewport-row clicks) read back via `0D`, and
+> every known format was slid across @165-198: s11 = format B @165,
+> s12 = format C @171, s13 = format D @177, s14 = A-s7 bits @181,
+> s15 = A-s8 row @188, s16 = A-s9 row @194 — each EXACT on its
+> distinctive d1 (110,120,121,122,123,124, ch1/pc/d2=0) using the
+> authoritative `trace._fmt_*`/`_A_SLOTS` implementations. Pattern: slots
+> 11-13 reuse bank-B formats B/C/D, slots 14-16 reuse bank-A s7/s8/s9.
+> `trace.decode_bank_a_slots` now returns all 16; `read-bank-exact a`
+> verified 16/16 live (77,0,0,0,0,60,70,80,90,100,110,120-124).
+> Caveats: single-sample assignments (ch/type/d2 variation untested for
+> 11-16; the bit positions themselves are fully solved elsewhere);
+> s13/s15/s16 have dual fits (A-s6/B-D, A-s8/B-F, A-s9/B-G — near-identical
+> formats, need ch/type/d2 spot-checks); `remove-all` does NOT clear
+> @165+ (stale bytes from older 16-slot states linger — this is how the
+> first marker round was misread: it edited bottom-viewport slots 11-16
+> while the analysis assumed top).
+
 ### 4.6 Bank capacity — 16 slots max (2026-09-07)
 
 | property | value |
@@ -507,6 +532,132 @@ needs a spot-check); unobserved type codes decode '?'.
 
 At 12+ slots a scrollbar appears (up arrow, slider, down arrow); slots
 12-16 edit-button positions are unmapped — see Task 2.
+
+#### Scrollbar geometry + scroll failure (2026-09-07 recon, bank A)
+
+Measured in frame pixels (= `xdotool --window` click coords = screenshot
+pixels; the `import -window` shot is the 1267x896 frame, client origin
+≈ (+3, +29)):
+
+| element | geometry |
+|---|---|
+| list rows | 11 visible, 19px pitch, first-row text y ~640-658, list y ~636-852 |
+| gutter | x 864-880 (center ~872) |
+| up-arrow button | y ~612-629 (glyph triangle ~619-621) |
+| track | y ~630-831 |
+| thumb (16 slots, top) | y ~660-711 |
+| down-arrow button | y ~832-849 (glyph triangle ~840-842) |
+
+**Scrolling works synthetically via a single track click just above the
+down arrow (874,829) — operator-confirmed, then harness-verified
+2026-09-07.** One click pages a 16-slot list from top straight to the
+bottom (slots 6-16); idempotent (no-op when already there). Earlier
+"~18 failures" were partly input-dead tests (screen-control permission
+expired mid-session) and partly wrong coords (872,814 is a dead zone;
+874,829 just above the arrow button is the spot). What still does NOT
+work: page-up clicks (665/720, likely landing on the stuck-rendered
+thumb), up/down-arrow clicks (pressed state only), thumb drags, wheel
+(up to 20 ticks), End/Page_Down/Down/F6, Tab-focus+keys. The scrollbar
+thumb position is MEANINGLESS (seen at bottom on fresh opens showing
+slots 1-11); verify scroll state by row contents (markers), never the
+thumb. To return to the top: close + reopen FootCtrlPlus (page-up has
+no working primitive). Harness: `scroll-to-bottom` command (bank A
+only — bank B's scrollbar offset is unmeasured) + `--view-start`
+viewport mapping (bank B bottom fills refused until measured). What DOES
+also work: row click selects (white band x 595-866), hover highlights
+the hovered row. Tab order is a 16-cycle reaching Import + the bank-B
+list, never bank-A Edit buttons. The window is fixed-size (1267x896;
+`wmctrl -e` resize refused) on the 1920x1080 screen.
+
+Viewport-offset harness model (the Edit buttons are PER-VIEWPORT-ROW,
+not per-slot — proven: the same 11 button coords address slots 1-11 at
+top and slots 6-16 at bottom): `open-edit` / `set-message` take the
+ABSOLUTE slot index plus `--view-start` (0 = top, 5 = bottom;
+viewport row = slot − view_start); `scroll-to-bottom` pages down
+synthetically (bank A only); close + reopen returns to the top.
+`camp2.fill` supports two-phase fills (`fresh=False` + 11 viewport msgs,
+auto-scrolls). `read-bank` needs no change for scrolled views (same
+OCR region, rows repaint in place). Repaint caveat: the top viewport
+row can go stale (keeps showing old slot-1 content after scrolling —
+identify viewports by markers, and distrust row 0).
+
+#### Slots 11-16 protocol: SOLVED via reuse (2026-09-07 — supersedes the 2-sample note below)
+
+See §4.4 table + the §4.5 box: s11=B-B@165, s12=B-C@171, s13=B-D@177,
+s14=A-s7@181, s15=A-s8@188, s16=A-s9@194; `decode_bank_a_slots` returns
+all 16, `read-bank-exact a` gated 16/16 live. Captures:
+`2026-09-07_task2_16slot_readback` (defaults + stale @165+),
+`2026-09-07_task2_slot11_prot` (markers), `2026-09-07_task2_slot12_edit`
++ `2026-09-07_task2_slots13_16_edit` (per-edit page writes),
+`2026-09-07_task2_16slot_final` (16-slot gate read-back).
+
+Original 2-sample note (kept for the record):
+
+Records live at chunk `000000` @165-198 (nonzero, denser than slots
+1-10). Two samples: 16 defaults (`2026-09-07_task2_16slot_readback`)
+vs slot1=77 + slots 6-11=60/70/80/90/100/110
+(`2026-09-07_task2_slot11_prot`, all verified via `read-bank-exact`).
+The ONLY bank-A byte that changes with slot 11's d1 (0→110) is @168
+(`0x3C`→`0x6E`); slots 1-10 diffs hit their known records exactly
+(@110-111, @139-140, @145-146, @151, @156-157, @162-163). Separately,
+bytes @194-198 read `00 00 60 0D 40` — a byte-exact slot-9-format
+encoding of (ch1, pc, d1=110) — but slot 11's record offset is
+unresolved (@165 vs @194; @165-193 dense). Slots 12-16 (all defaults)
+are unmapped. A spread campaign needs UI edits of slots 12-16 →
+blocked on scrolling (above).
+
+Write-path note: the first marker attempt (6x `set-message`, no MIDI
+listener attached, 1s spacing) showed values in the UI but never
+reached the device; the retry (listener attached via `record`, 3s
+spacing) stuck fully (13 page-writes/edit on the wire, read-back
+exact). Hypothesis: keep a subscriber attached during fills (the known
+Wine-buffering caveat) — or pace. Unconfirmed which factor mattered.
+
+### 4.7 `.FCP` preset files — SOLVED (2026-09-07)
+
+FootCtrlPlus Export/Import preset (`.FCP`, in the Bottles prefix
+`drive_c/users/maja/Documents`). Fixed size **23646 bytes**: a fixed
+template with per-foot bank regions and a few global bytes. Generator:
+`tools/gen_fcp.py spec.json out.fcp` (template + field writes; spec
+reuses `MidiMessage` fields). Gate files: `tools/gate1.json` (rich
+banks, all double-bank) and `tools/gate2.json` (mixed foot modes).
+
+| offset | field | encoding |
+|---|---|---|
+| foot regions | A@95, B@512, C@929, D@1346 (stride 417, 417B each) | bank A records at +0, bank B records at +80 (16 × 5B each) |
+| slot record (5B) | `[ch-1, type, d1, d2, flag]` | type 0=pc,1=cc,2=noteon,3=noteoff; all plain bytes (NOT bit-packed like the `0D` chunk!) |
+| flag | `01` iff another slot follows (`i < count-1`), `00` for the last slot; rec15 byte always `01` | import reads while-`01`-plus-one, cap 16 (proven: 2-slot file imports as 2 rows) |
+| @0 | device mode | `0x00`-`0x0C` (program_a, program_b, custom, advanced, manuf, touch, video, kbd_a, kbd_b, multi-kbd, custom-kbd, mix, speaker) — 1 byte each, verified |
+| @1 | TRS jack mode | 0=expression, 1=midi |
+| @93 + per-foot @region-2 (B@510, C@927, D@1344) | footswitch mode | `0x00`-`0x04` (single1, double1, press, long1, stepshortlong); per-foot confirmed (mixed-mode import sticks per foot); @93 mirrors the viewed foot |
+| @23642 | TRS reverse-polarity | 0=normal, 1=reversed |
+| rest (~22KB) | fixed template | byte-identical across all exports |
+
+Not stored: the selected foot (exports differ only in foot data).
+Empty slots: `[0,0,0,0,flag]` (import skips nothing — flags set count).
+
+Import semantics (gate-proven): generated FCP → GUI import →
+`read-bank-exact` + mode/`get` detectors match EXACTLY (gate1: 16+10
+foot-A slots, 4+3/4+3/4+3 B/C/D slots incl. ch16/d127/all types +
+device/TRS/polarity/all-foot-modes; gate2: mixed per-foot modes +
+banks). **Import needs ~60-90s settle before close/reopen** (async
+write queue; an early reopen reads back stale feet — this initially
+masqueraded as "import skips B/C/D").
+
+**App-model staleness warning (2026-09-07):** GUI fills update the
+device + visible list but NOT the app's per-foot bank model; the next
+fill's full-config page writes flush STALE unviewed feet to the device
+(proven: foot-B [41,42] wiped by a later foot-C fill; foot-A always
+survives because it stays viewed/fresh). RULE: never fill feet
+sequentially via GUI without re-verifying — **use FCP import for
+multi-foot writes** (single atomic write, no staleness).
+
+**Relation to the page-write checksum task:** FCP import is a working
+alternate write path around the unsolved `09 41 40` checksum — it
+writes arbitrary full configs (all feet/banks/modes) with no checksum
+to solve. Direct page writes remain unsolved; prefer import.
+
+---
 
 ## 5. Checksum
 

@@ -500,11 +500,13 @@ _A_TYPES = {
 
 
 def decode_bank_a_slots(chunk: bytes) -> list[dict]:
-    """Decode bank A slots 1-10 from the 000000 chunk.
+    """Decode bank A slots 1-16 from the 000000 chunk.
 
     Slot 1 via decode_slot1; slots 2-7 via the _A_SLOTS bit positions
     (solve_bits.py, ~117 samples each); slots 8-10 via their verified
-    rows below. Slot records are variable-length bit-packed.
+    rows below; slots 11-16 via format reuse (2026-09-07, one
+    distinctive-d1 sample each — see below). Slot records are
+    variable-length bit-packed.
     """
     out = [decode_slot1(chunk, "a")]
     # slots 2-7 via _A_SLOTS bit positions (solve_bits.py). Type codes keep
@@ -612,6 +614,62 @@ def decode_bank_a_slots(chunk: bytes) -> list[dict]:
                 "data1": (chunk[162] >> 2) | ((chunk[163] & 0x07) << 5),
                 "data2": ((chunk[163] >> 3) & 0x0F) | (chunk[164] << 4)
                 if (chunk[161] >> 1)
+                else 0,
+            }
+        )
+    # slots 11-16 (16-slot layout) — format reuse, solved 2026-09-07 from
+    # a 16-slot bank (slot1=77, slots 6-11=60-110, slots 12-16=120-124;
+    # each format verified on ONE distinctive-d1 sample, ch1/pc/d2=0 —
+    # the bit positions themselves come from fully-solved slots elsewhere,
+    # so only the format assignment is single-sample):
+    #   s11 = format B @165 (6B), s12 = format C @171 (5B),
+    #   s13 = format D @177 (5B; A-s6@176 also fits — needs a ch/type/d2
+    #     spot-check to separate), s14 = A-s7 bits @181 (7B),
+    #   s15 = A-s8 row @188 (B-F also fits), s16 = A-s9 row @194 (B-G
+    #     also fits). Flags @176=0x01, @193=0x02; @181 is shared (s13 d2hi
+    #     byte = s14 ch byte, 0x00/0x20).
+    #   (s11=s12=... note: remove-all does NOT clear @165+: stale bytes
+    #   from older 16-slot states linger there; decoders read them as-is.)
+    if any(chunk[165:171]):
+        msg = _fmt_b(chunk, 165)
+        if msg:
+            out.append(msg)
+    if any(chunk[171:176]):
+        msg = _fmt_c(chunk, 171)
+        if msg:
+            out.append(msg)
+    if any(chunk[177:182]):
+        msg = _fmt_d(chunk, 177)
+        if msg:
+            out.append(msg)
+    if any(chunk[182:188]):
+        base, chp, _, d1p, d2p = _A_SLOTS[7]
+        out.append(
+            {
+                "channel": _x(chunk, 181, chp) + 1,
+                "type": _A_TYPES[7].get(chunk[184], "?"),
+                "data1": _x(chunk, 181, d1p),
+                "data2": _x(chunk, 181, d2p),
+            }
+        )
+    if any(chunk[188:193]):
+        out.append(
+            {
+                "channel": (((chunk[188] >> 4) & 0x07) | ((chunk[189] & 0x01) << 3))
+                + 1,
+                "type": _BA_TYPE.get(chunk[189] >> 5, "?"),
+                "data1": (chunk[191] << 1) | (chunk[190] >> 6),
+                "data2": chunk[192] if (chunk[189] >> 5) else 0,
+            }
+        )
+    if any(chunk[194:199]):
+        out.append(
+            {
+                "channel": ((chunk[194] >> 2) & 0x0F) + 1,
+                "type": _BA_TYPE.get(chunk[195] >> 3, "?"),
+                "data1": (chunk[196] >> 4) | ((chunk[197] & 0x1F) << 3),
+                "data2": ((chunk[198] - 0x40) << 2) | (chunk[197] >> 5)
+                if (chunk[195] >> 3)
                 else 0,
             }
         )

@@ -126,9 +126,14 @@ COORDS = {
     # remembered location.
     "picker_tree": (70, 78),
     "picker_filename": (340, 480),
-    "picker_save": (565, 535),
-    "picker_open": (565, 535),
-    "picker_cancel": (625, 535),
+    # Bottom-row buttons measured 2026-09-07 on the 668x522 dialog
+    # (Save/Open centered ~x558, Cancel ~x614, y ~502). The old y=535
+    # lands below the dialog and misses (found via a stuck picker).
+    # Flows confirm with Return (picker_confirm), so these are only used
+    # by the generic `click` command.
+    "picker_save": (558, 502),
+    "picker_open": (558, 502),
+    "picker_cancel": (614, 502),
 }
 COORDS.update({name: (x, y) for name, (x, y, _) in FOOTSWITCH_MODES.items()})
 
@@ -275,21 +280,23 @@ CONFIRM_Y_BY_TYPE = {MidiType.PC: 176}  # others keep the default 186
 # `open_edit` / `set-message` refuse event index >= MAX_SLOTS.
 MAX_SLOTS = 16
 
-# "Edit" buttons for each mapped event, in the FootCtrlPlus window.
-# One entry per event row (slot 1 = index 0). Only slots 1-11 are mapped
-# so far; slots 12-16 need scrollbar support (Task 2).
+# "Edit" buttons for each VISIBLE row, in the FootCtrlPlus window.
+# The buttons are per-viewport-row, not per-slot: the bank list shows 11
+# rows at a time (19px pitch); scrolled to the bottom the same buttons
+# address slots 6-16. `open_edit` maps slot -> viewport row via
+# view_start (0 = top: slots 1-11; 5 = bottom: slots 6-16).
 EVENT_EDIT_BUTTONS = [
-    (725, 652),  # slot 1
-    (695, 674),  # slot 2
-    (695, 692),  # slot 3
-    (695, 711),  # slot 4
-    (695, 730),  # slot 5
-    (695, 749),  # slot 6
-    (695, 768),  # slot 7
-    (695, 788),  # slot 8
-    (695, 805),  # slot 9
-    (695, 825),  # slot 10
-    (695, 844),  # slot 11
+    (725, 652),  # viewport row 0
+    (695, 674),  # viewport row 1
+    (695, 692),  # viewport row 2
+    (695, 711),  # viewport row 3
+    (695, 730),  # viewport row 4
+    (695, 749),  # viewport row 5
+    (695, 768),  # viewport row 6
+    (695, 788),  # viewport row 7
+    (695, 805),  # viewport row 8
+    (695, 825),  # viewport row 9
+    (695, 844),  # viewport row 10
 ]
 
 # Text fields need the old value cleared before typing a new one.
@@ -560,11 +567,15 @@ def _clear_and_type(value: int) -> None:
     _run(["xdotool", "type", "--delay", "150", str(value)])
 
 
-def open_edit(event_index: int = 0, bank: str = "a") -> int:
-    """Click the Edit button of a mapped event (default: the first one).
+def open_edit(event_index: int = 0, bank: str = "a", view_start: int = 0) -> int:
+    """Click the Edit button of a bank slot (default: slot 1).
 
-    If a midi_edit dialog is already open (top of stack), close it first
-    so the edit button of FootCtrlPlus is reachable again.
+    Buttons are per-viewport-row: `view_start` is the 0-based slot at the
+    top of the visible list (0 = top: slots 1-11; 5 = bottom: slots
+    6-16). Run `scroll-to-bottom` first for view_start=5 (synthetic
+    page-up does not work; close + reopen to return to the top). If a
+    midi_edit dialog is already open (top of stack), close it first so
+    the edit button of FootCtrlPlus is reachable again.
     """
     if event_index >= MAX_SLOTS or event_index < 0:
         print(
@@ -573,10 +584,13 @@ def open_edit(event_index: int = 0, bank: str = "a") -> int:
             file=sys.stderr,
         )
         return 1
-    if event_index >= len(EVENT_EDIT_BUTTONS):
+    row = event_index - view_start
+    if not 0 <= row < len(EVENT_EDIT_BUTTONS):
         print(
-            f"open-edit: event {event_index + 1} needs scrollbar support "
-            "(only slots 1-11 mapped so far)",
+            f"open-edit: slot {event_index + 1} is not visible "
+            f"(viewport shows slots {view_start + 1}-"
+            f"{view_start + len(EVENT_EDIT_BUTTONS)}); run scroll-to-bottom "
+            "and pass --view-start 5",
             file=sys.stderr,
         )
         return 1
@@ -586,7 +600,7 @@ def open_edit(event_index: int = 0, bank: str = "a") -> int:
     wid = require("open_edit")
     if wid is None:
         return 1
-    x, y = EVENT_EDIT_BUTTONS[event_index]
+    x, y = EVENT_EDIT_BUTTONS[row]
     x, y = banked_coord("open_edit", x, y, bank)
     # Double-click: the Edit button opens the dialog on a double-click.
     click(wid, x, y, clicks=2)
@@ -660,7 +674,9 @@ def edit_confirm(mtype: MidiType | None = None) -> int:
     return 0
 
 
-def set_message(msg: MidiMessage, event_index: int = 0, bank: str = "a") -> int:
+def set_message(
+    msg: MidiMessage, event_index: int = 0, bank: str = "a", view_start: int = 0
+) -> int:
     """Full pipeline: open the event's edit dialog if needed, fill in the
     message fields, and confirm."""
     if event_index >= MAX_SLOTS or event_index < 0:
@@ -677,7 +693,7 @@ def set_message(msg: MidiMessage, event_index: int = 0, bank: str = "a") -> int:
 
     window_state = top_of_stack(open_windows())
     if window_state == "footctrlplus":
-        if open_edit(event_index, bank=bank):
+        if open_edit(event_index, bank=bank, view_start=view_start):
             return 1
         # wait for the dialog to appear
         for _ in range(50):
@@ -752,6 +768,38 @@ def cmd_geometry(window: str | None) -> int:
 def switch(foot: str, absolute: bool = False, bank: str = "a") -> int:
     """Select foot switch A/B/C/D (case-insensitive)."""
     return cmd_click(FOOT_SWITCHES[foot.lower()], absolute, bank=bank)
+
+
+# Scrollbar track click that pages the bank list down (scroll-to-bottom).
+# Proven 2026-09-07: a single left-click on the track just above the
+# down-arrow button jumps a 16-slot list from top to bottom (slots 6-16).
+# Idempotent (no-op when already at bottom). Page-up clicks, arrow
+# clicks/holds, thumb drags, wheel, and list keys do NOT move the content.
+SCROLL_BOTTOM = (874, 829)
+
+
+def scroll_bottom(bank: str = "a") -> int:
+    """Page the bank list to the bottom (slots 6-16 visible).
+
+    Single track click just above the down arrow. No-op when already at
+    the bottom. To return to the top, close + reopen FootCtrlPlus.
+    Bank B's scrollbar offset is unmeasured (bank B never held 12+
+    slots) — bank B refuses for now.
+    """
+    if bank != "a":
+        print(
+            "scroll-to-bottom: bank B scrollbar offset unmeasured; "
+            "refusing (fill 12+ slots in bank B and measure first)",
+            file=sys.stderr,
+        )
+        return 1
+    wid = require("add")  # any footctrlplus action resolves the window
+    if wid is None:
+        return 1
+    x, y = SCROLL_BOTTOM
+    click(wid, x, y)
+    print(f"scroll-to-bottom: clicked track at ({x}, {y})")
+    return 0
 
 
 def add(absolute: bool = False, bank: str = "a", slot_count: int | None = None) -> int:
@@ -1665,6 +1713,13 @@ def main(argv=None) -> int:
     )
     _add_bank_flag(p_add)
 
+    sub.add_parser(
+        "scroll-to-bottom",
+        help="page the bank list down (slots 6-16 visible) via a track "
+        "click just above the down arrow",
+    )
+    # NOTE: no --bank flag (bank A only; bank B offset unmeasured).
+
     p_start = sub.add_parser(
         "start-foot-ctrl-plus",
         help="click the launcher button on the launchpad (runs init sequence)",
@@ -1705,9 +1760,16 @@ def main(argv=None) -> int:
 
     p_open_edit = sub.add_parser(
         "open-edit",
-        help="click the Edit button of a mapped event (default: the first one)",
+        help="click the Edit button of a bank slot (default: slot 1)",
     )
     p_open_edit.add_argument("index", nargs="?", type=int, default=0)
+    p_open_edit.add_argument(
+        "--view-start",
+        type=int,
+        default=0,
+        help="0-based slot at the top of the visible list (0 = top: "
+        "slots 1-11; 5 = bottom: slots 6-16; run scroll-to-bottom first)",
+    )
     _add_bank_flag(p_open_edit)
 
     p_ec = sub.add_parser("edit-channel", help="set MIDI channel 1-16 in the dialog")
@@ -1743,6 +1805,13 @@ def main(argv=None) -> int:
         "data2", type=int, nargs="?", help="value/velocity 0-127 (non-PC)"
     )
     p_sm.add_argument("--event", type=int, default=0, help="event index (default 0)")
+    p_sm.add_argument(
+        "--view-start",
+        type=int,
+        default=0,
+        help="0-based slot at the top of the visible list (0 = top: "
+        "slots 1-11; 5 = bottom: slots 6-16; run scroll-to-bottom first)",
+    )
     _add_bank_flag(p_sm)
 
     args = parser.parse_args(argv)
@@ -1843,6 +1912,8 @@ def main(argv=None) -> int:
             print(f"add: --count must be >= 0 (got {args.count})", file=sys.stderr)
             return 1
         return add(args.absolute, bank=args.bank, slot_count=args.count)
+    if args.command == "scroll-to-bottom":
+        return scroll_bottom()
     if args.command == "start-foot-ctrl-plus":
         return start_foot_ctrl_plus(args.absolute)
     if args.command == "close-editor":
@@ -1858,7 +1929,7 @@ def main(argv=None) -> int:
     if args.command == "start-cubesuite":
         return start_cubesuite()
     if args.command == "open-edit":
-        return open_edit(args.index, bank=args.bank)
+        return open_edit(args.index, bank=args.bank, view_start=args.view_start)
     if args.command == "edit-channel":
         return edit_set_channel(args.channel)
     if args.command == "edit-type":
@@ -1876,7 +1947,9 @@ def main(argv=None) -> int:
             data1=args.data1,
             data2=args.data2,
         )
-        return set_message(msg, event_index=args.event, bank=args.bank)
+        return set_message(
+            msg, event_index=args.event, bank=args.bank, view_start=args.view_start
+        )
 
     parser.error(f"unhandled command: {args.command}")
     return 2
